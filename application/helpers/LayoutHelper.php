@@ -105,17 +105,6 @@ class LayoutHelper
     {
         // We don't wont the admin menu to be shown in login page
         if (!Yii::app()->user->isGuest) {
-            // Default password notification
-            if (Yii::app()->session['pw_notify'] && Yii::app()->getConfig("debug") < 2) {
-                $not = new UniqueNotification(array(
-                    'user_id' => App()->user->id,
-                    'importance' => Notification::HIGH_IMPORTANCE,
-                    'title' => gT('Password warning'),
-                    'message' => '<span class="ri-error-warning-fill"></span>&nbsp;' .
-                        gT("Warning: You are still using the default password ('password'). Please change your password and re-login again.")
-                ));
-                $not->save();
-            }
             if (!(App()->getConfig('ssl_disable_alert')) && strtolower(App()->getConfig('force_ssl') != 'on') && \Permission::model()->hasGlobalPermission("superadmin")) {
                 $not = new UniqueNotification(array(
                     'user_id' => App()->user->id,
@@ -190,6 +179,7 @@ class LayoutHelper
     public function renderTopbarTemplate($aData)
     {
         $titleTextBreadcrumb = null;
+        $titleBackLink = null;
         $isBreadCrumb = isset($aData['title_bar']); //only the existence is important, indicator for breadcrumb
 
         if (isset($aData['topbar']['title'])) {
@@ -197,6 +187,10 @@ class LayoutHelper
         } elseif ($isBreadCrumb) {
             $titleTextBreadcrumb = App()->getController()->renderPartial("/layouts/title_bar", $aData, true);
         }
+        if (isset($aData['topbar']['backLink'])) {
+            $titleBackLink = $aData['topbar']['backLink'];
+        }
+
         $middle = $aData['topbar']['middleButtons'] ?? '';
         $rightSide = $aData['topbar']['rightButtons'] ?? '';
         if ($titleTextBreadcrumb !== null) {
@@ -221,7 +215,8 @@ class LayoutHelper
                     'leftSide'     => $titleTextBreadcrumb,
                     'middle'       => $middle, //array of ButtonWidget
                     'rightSide'    => $rightSide, //array of ButtonWidget
-                    'isBreadCrumb' => $isBreadCrumb
+                    'isBreadCrumb' => $isBreadCrumb,
+                    'titleBackLink' => $titleBackLink
                 ],
                 true
             );
@@ -231,6 +226,7 @@ class LayoutHelper
 
     /**
      * Display the update notification
+     * @throws CException
      */
     public function updatenotification()
     {
@@ -258,7 +254,8 @@ class LayoutHelper
             $updateNotification = $updateModel->updateNotification;
 
             if ($updateNotification->result) {
-                return Yii::app()->getController()->renderPartial(
+                App()->getClientScript()->registerScriptFile(App()->getConfig('packages') . DIRECTORY_SEPARATOR . 'comfort_update' . DIRECTORY_SEPARATOR . 'comfort_update.js');
+                return App()->getController()->renderPartial(
                     "/admin/update/_update_notification",
                     array('security_update_available' => $updateNotification->security_update)
                 );
@@ -344,6 +341,12 @@ class LayoutHelper
         $iSurveyID = $aData['surveyid'];
 
         $survey = Survey::model()->findByPk($iSurveyID);
+
+        if (App()->getConfig('editorEnabled') && $survey->getTemplateEffectiveName() == 'fruity_twentythree') {
+            App()->controller->widget('ext.admin.survey.SurveySidemenuWidget.SurveySidemenuWidget', ['sid' => $iSurveyID]);
+            return;
+        }
+
         // TODO : create subfunctions
         $sumresult1 = Survey::model()->with(
             array(
@@ -385,7 +388,7 @@ class LayoutHelper
             Yii::app()->getController()->renderPartial("/layouts/sidemenu", $aData);
         } else {
             Yii::app()->session['flashmessage'] = gT("Invalid survey ID");
-            Yii::app()->getController()->redirect(array("admin/index"));
+            Yii::app()->getController()->redirect(array("dashboard/view"));
         }
     }
 

@@ -140,6 +140,7 @@ class LSYiiValidatorsTest extends TestBaseClass
         $userName = \Yii::app()->securityManager->generateRandomString(8);
 
         $userData = array(
+            'full_name'  => $userName,
             'users_name' => $userName,
             'email'      => $userName . '@example.org'
         );
@@ -328,5 +329,15 @@ class LSYiiValidatorsTest extends TestBaseClass
         $this->assertSame('de-informal de-easy es', $survey->additional_languages, 'The multi language filter did not return a correctly filtered string.');
 
         $survey->delete(true);
+    }
+
+    /**
+     * Testing broken HTML.
+     */
+    public function testBrokenHtml()
+    {
+        $validator = new \LSYii_Validators();
+
+        $this->assertSame('<strong>strong </strong>', $validator->xssFilter('<strong>strong <style>'), 'Unexpected filtered broken HTML tags.');
     }
 }
