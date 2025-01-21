@@ -26,7 +26,7 @@ class Themes extends SurveyCommonAction
 {
     public function runWithParams($params)
     {
-        $sTemplateName = Yii::app()->request->getPost('templatename', '');
+        $sTemplateName = trim(Yii::app()->request->getPost('templatename', ''));
         if (Permission::model()->hasGlobalPermission('templates', 'read') || Permission::model()->hasTemplatePermission($sTemplateName)) {
             parent::runWithParams($params);
         } else {
@@ -174,7 +174,11 @@ class Themes extends SurveyCommonAction
             App()->getController()->forward("/surveyAdministration/uploadimagefile/");
             App()->end();
         }
-        $sTemplateName = App()->request->getPost('templatename');
+        $sTemplateName = trim(App()->request->getPost('templatename', ''));
+        // This controller has several actions. Even actions that manage multiple subactions.
+        // In case you are uploading a template, the templatename does not exist in the POST.
+        // It's not going to fail, but it's checking for a permission with an empty templatename.
+        // Surely it works as expected, but it would be nice if the code was clearer.
         if (Permission::model()->hasGlobalPermission('templates', 'import') || Permission::model()->hasTemplatePermission($sTemplateName)) {
             App()->loadHelper('admin/template');
             // NB: lid = label id
@@ -391,6 +395,9 @@ class Themes extends SurveyCommonAction
                             'is_folder' => $sFile['folder']
                         ];
                     }
+                    if ($sFile['stored_filename'] == "config.xml") {
+                        SurveyThemeHelper::checkConfigFiles($sFile['filename']);
+                    }
                 }
 
                 if (Template::checkIfTemplateExists($sNewDirectoryName)) {
@@ -580,8 +587,9 @@ JAVASCRIPT
         // page title
         $pageTitle = gT('Theme editor:') . ' ' . $templatename;
 
-        //$aData['pageTitle'] = $pageTitle;
         $aData['topbar']['title'] = $pageTitle;
+        $aData['topbar']['backLink'] = App()->createUrl('themeOptions/index');
+
 
         $aData['topbar']['middleButtons'] = Yii::app()->getController()->renderPartial(
             '/admin/themes/partial/topbarBtns/leftSideButtons',
@@ -590,12 +598,6 @@ JAVASCRIPT
                 'templatename' => $templatename,
                 'isExtend' => true,
             ],
-            true
-        );
-
-        $aData['topbar']['rightButtons'] = Yii::app()->getController()->renderPartial(
-            '/admin/themes/partial/topbarBtns/rightSideButtons',
-            [],
             true
         );
 
@@ -621,7 +623,7 @@ JAVASCRIPT
     public function templatefiledelete()
     {
         if (Permission::model()->hasGlobalPermission('templates', 'update')) {
-            $sTemplateName   = Template::templateNameFilter(App()->request->getPost('templatename'));
+            $sTemplateName   = Template::templateNameFilter(trim(App()->request->getPost('templatename', '')));
             $oEditedTemplate = Template::getInstance($sTemplateName);
             $templatedir     = $oEditedTemplate->viewPath;
             $sPostedFiletype = CHtml::decode(App()->request->getPost('filetype'));
@@ -668,8 +670,10 @@ JAVASCRIPT
      */
     public function templaterename()
     {
-        $sNewName = sanitize_dirname(App()->getRequest()->getPost('newname'));
+        $sNewName = trim(sanitize_dirname(App()->getRequest()->getPost('newname')));
         $sOldName = sanitize_dirname(App()->getRequest()->getPost('copydir'));
+        $sNewName = CHtml::encode($sNewName);
+        Template::validateTemplateName($sNewName);
         if (Permission::model()->hasGlobalPermission('templates', 'update')) {
             if ($sNewName && $sOldName) {
                 $sNewDirectoryPath = Yii::app()->getConfig('userthemerootdir') . DIRECTORY_SEPARATOR . $sNewName;
@@ -713,7 +717,9 @@ JAVASCRIPT
         $copydir = sanitize_dirname(Yii::app()->request->getPost("copydir"));
 
         if (Permission::model()->hasGlobalPermission('templates', 'create')) {
-            $newname = sanitize_dirname(Yii::app()->request->getPost("newname"));
+            $newname = trim(sanitize_dirname(Yii::app()->request->getPost("newname")));
+            $newname = CHtml::encode($newname);
+            Template::validateTemplateName($newname);
 
             Yii::import('application.helpers.SurveyThemeHelper');
             if (SurveyThemeHelper::isStandardTemplate($newname)) {
@@ -814,7 +820,11 @@ JAVASCRIPT
 
         if (Permission::model()->hasGlobalPermission('templates', 'delete')) {
             // First we check that the theme is really broken
-            $aBrokenThemes = Template::getBrokenThemes();
+            $aBrokenThemes = [];
+            $aTemplatesWithNoDB = TemplateConfig::getTemplatesWithNoDb();
+            if (!empty($aTemplatesWithNoDB['invalid'])) {
+                $aBrokenThemes = $aTemplatesWithNoDB['invalid'];
+            }
             $templatename  = sanitize_dirname($templatename);
             if (array_key_exists($templatename, $aBrokenThemes)) {
                 if (rmdirr(Yii::app()->getConfig('userthemerootdir') . "/" . $templatename)) {
@@ -839,6 +849,7 @@ JAVASCRIPT
     public function deleteAvailableTheme()
     {
         $templatename = trim(App()->request->getPost('templatename', ''));
+        $templatename = CHtml::decode($templatename);
 
         if (Permission::model()->hasGlobalPermission('templates', 'delete')) {
             $completeFileName = realpath(App()->getConfig('userthemerootdir') . "/" . $templatename);
@@ -887,7 +898,7 @@ JAVASCRIPT
             $action               = returnGlobal('action');
             $editfile             = returnGlobal('editfile');
             $relativePathEditfile = returnGlobal('relativePathEditfile');
-            $sTemplateName        = Template::templateNameFilter(App()->request->getPost('templatename'));
+            $sTemplateName        = Template::templateNameFilter(trim(App()->request->getPost('templatename', '')));
             $screenname           = returnGlobal('screenname');
             $oEditedTemplate      = Template::model()->getTemplateConfiguration($sTemplateName, null, null, true)->prepareTemplateRendering($sTemplateName);
 
@@ -1090,7 +1101,7 @@ JAVASCRIPT
      * @param string $screenname
      * @param string $editfile
      * @param bool $showsummary
-     * @return
+     * @return void
      */
     protected function initialise($templatename, $screenname, $editfile, $showsummary = true)
     {
@@ -1343,7 +1354,7 @@ JAVASCRIPT
             'importance' => Notification::HIGH_IMPORTANCE,
             'message'    => sprintf(
                 gT('Welcome to the theme editor of LimeSurvey. To get an overview of new functionality and possibilities, please visit the %s LimeSurvey manual %s. For further questions and information, feel free to post your questions on the %s LimeSurvey forums %s.', 'unescaped'),
-                '<a target="_blank" href="https://manual.limesurvey.org/New_Template_System_in_LS3.x">',
+                '<a target="_blank" href="https://www.limesurvey.org/manual/New_Template_System_in_LS3.x">',
                 '</a>',
                 '<a target="_blank" href="https://forums.limesurvey.org">',
                 '</a>'

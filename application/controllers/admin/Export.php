@@ -113,9 +113,14 @@ class Export extends SurveyCommonAction
     public function group()
     {
         $gid = sanitize_int(Yii::app()->request->getParam('gid'));
-        $iSurveyID = sanitize_int(Yii::app()->request->getParam('surveyid'));
-
-        group_export("exportstructurecsvGroup", $iSurveyID, $gid);
+        $group = QuestionGroup::model()->findByPk($gid);
+        if (empty($group)) {
+            throw new CHttpException(404, gT("Invalid group ID"));
+        }
+        if (!Permission::model()->hasSurveyPermission($group->sid, 'surveycontent', 'export')) {
+            throw new CHttpException(403, gT("You do not have permission to access this page."));
+        }
+        group_export("exportstructurecsvGroup", $group->sid, $gid);
 
         return;
     }
@@ -125,10 +130,15 @@ class Export extends SurveyCommonAction
      */
     public function question()
     {
-        $gid = sanitize_int(Yii::app()->request->getParam('gid'));
         $qid = sanitize_int(Yii::app()->request->getParam('qid'));
-        $iSurveyID = sanitize_int(Yii::app()->request->getParam('surveyid'));
-        questionExport("exportstructurecsvQuestion", $iSurveyID, $gid, $qid);
+        $question = Question::model()->findByPk($qid);
+        if (empty($question)) {
+            throw new CHttpException(404, gT("Invalid question id"));
+        }
+        if (!Permission::model()->hasSurveyPermission($question->sid, 'surveycontent', 'export')) {
+            throw new CHttpException(403, gT("You do not have permission to access this page."));
+        }
+        questionExport("exportstructurecsvQuestion", $question->sid, $question->gid, $qid);
     }
 
     /**
@@ -139,17 +149,8 @@ class Export extends SurveyCommonAction
         $iSurveyID = sanitize_int(App()->request->getParam('surveyid', App()->request->getParam('surveyId')));
         $survey = Survey::model()->findByPk($iSurveyID);
 
-        if (!isset($imageurl)) {
-            $imageurl = "./images";
-        }
         if (!isset($iSurveyID)) {
             $iSurveyID = returnGlobal('sid');
-        }
-        if (!isset($convertyto)) {
-            $convertyto = returnGlobal('convertyto');
-        }
-        if (!isset($convertnto)) {
-            $convertnto = returnGlobal('convertnto');
         }
 
         if (!Permission::model()->hasSurveyPermission($iSurveyID, 'responses', 'export')) {
@@ -1189,20 +1190,11 @@ class Export extends SurveyCommonAction
             echo $this->xmlToJson($surveyInXmlFormat);
             Yii::app()->end();
         } elseif ($action == "exportstructurequexml") {
-            if (isset($surveyprintlang) && !empty($surveyprintlang)) {
-                $quexmllang = $surveyprintlang;
-            } else {
-                $quexmllang = Survey::model()->findByPk($iSurveyID)->language;
-            }
-
-            if (!(isset($noheader) && $noheader == true)) {
-                $fn = "survey_{$iSurveyID}_{$quexmllang}.xml";
-
-                $this->addHeaders($fn, "text/xml", "Mon, 26 Jul 1997 05:00:00 GMT");
-
-                echo quexml_export($iSurveyID, $quexmllang);
-                Yii::app()->end();
-            }
+            $quexmllang = Survey::model()->findByPk($iSurveyID)->language;
+            $fn = "survey_{$iSurveyID}_{$quexmllang}.xml";
+            $this->addHeaders($fn, "text/xml", "Mon, 26 Jul 1997 05:00:00 GMT");
+            echo quexml_export($iSurveyID, $quexmllang);
+            Yii::app()->end();
         } elseif ($action == 'exportstructuretsv') {
             $this->exporttsv($iSurveyID);
         } elseif ($action == "exportarchive") {
