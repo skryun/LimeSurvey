@@ -153,7 +153,7 @@ function createChart($iQuestionID, $iSurveyID, $type, $lbl, $gdata, $grawdata, $
 
             $counter = 0;
             foreach ($lblout as $sLabelName) {
-                $DataSet->SetSerieName(html_entity_decode($sLabelName, null, 'UTF-8'), "Serie" . $counter);
+                $DataSet->SetSerieName(html_entity_decode($sLabelName, ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML401, 'UTF-8'), "Serie" . $counter);
                 $counter++;
             }
 
@@ -227,11 +227,11 @@ function createChart($iQuestionID, $iSurveyID, $type, $lbl, $gdata, $grawdata, $
                 }
             } elseif (getLanguageRTL($sLanguageCode)) {
                 foreach ($lbl as $kkey => $kval) {
-                    $lblout[] = UTF8Strrev(html_entity_decode($kkey, null, 'UTF-8') . ' )' . $kval . '(');
+                    $lblout[] = UTF8Strrev(html_entity_decode($kkey, ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML401, 'UTF-8') . ' )' . $kval . '(');
                 }
             } else {
                 foreach ($lbl as $kkey => $kval) {
-                    $lblout[] = html_entity_decode($kkey, null, 'UTF-8') . ' (' . $kval . ')';
+                    $lblout[] = html_entity_decode($kkey, ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML401, 'UTF-8') . ' (' . $kval . ')';
                 }
             }
 
@@ -576,7 +576,7 @@ class statistics_helper
      *
      * @param string $rt The code passed from the statistics form listing the field/answer (SGQA) combination to be displayed
      * @param mixed $language The language to present output in
-     * @param mixed $surveyid The survey id
+     * @param mixed $surveyid The survey ID
      * @param string $outputType
      * @param boolean $browse
      *
@@ -748,10 +748,7 @@ class statistics_helper
             list($qsid, $qgid, $qqid) = explode("X", substr($rt, 1, strlen($rt)), 3);
 
             //select details for this question
-            /**
-            FIXME $iQuestionIDlength not defined!!
-             */
-            $nresult = Question::model()->find('language=:language AND parent_qid=0 AND qid=:qid', array(':language' => $language, ':qid' => substr($qqid, 0, $iQuestionIDlength)));
+            $nresult = Question::model()->find('language=:language AND parent_qid=0 AND qid=:qid', array(':language' => $language, ':qid' => substr($qqid, 0)));
             $qtitle = $nresult->title;
             $qtype = $nresult->type;
             $qquestion = flattenText($nresult->question);
@@ -862,10 +859,7 @@ class statistics_helper
         elseif ($sQuestionType == "N" || $sQuestionType == "K") {
             //NUMERICAL TYPE
             //Zero handling
-            if (!isset($excludezeros)) {
-                //If this hasn't been set, set it to on as default:
-                $excludezeros = 1;
-            }
+            $excludezeros = 1;
             //check last character, greater/less/equals don't need special treatment
             if (substr($rt, -1) == "G" || substr($rt, -1) == "L" || substr($rt, -1) == "=") {
                 //DO NOTHING
@@ -1122,8 +1116,6 @@ class statistics_helper
                         default:
                             break;
                     }
-
-                    unset($showem);
                 }
             }    //end else -> check last character, greater/less/equals don't need special treatment
         }    //end else-if -> multiple numerical types
@@ -1263,22 +1255,33 @@ class statistics_helper
 
                 case Question::QT_COLON_ARRAY_NUMBERS: // Array (Multiple Flexi) (Numbers)
                     $aQuestionAttributes = QuestionAttribute::model()->getQuestionAttributes($qiqid);
-                    if (trim((string) $aQuestionAttributes['multiflexible_max']) != '') {
+                    $minvalue = 1;
+                    $maxvalue = 10;
+                    if (trim((string) $aQuestionAttributes['multiflexible_max']) != '' && trim((string) $aQuestionAttributes['multiflexible_min']) == '') {
                         $maxvalue = $aQuestionAttributes['multiflexible_max'];
-                    } else {
-                        $maxvalue = 10;
-                    }
-
-                    if (trim((string) $aQuestionAttributes['multiflexible_min']) != '') {
-                        $minvalue = $aQuestionAttributes['multiflexible_min'];
-                    } else {
                         $minvalue = 1;
                     }
+                    if (trim((string) $aQuestionAttributes['multiflexible_min']) != '' && trim((string) $aQuestionAttributes['multiflexible_max']) == '') {
+                        $minvalue = $aQuestionAttributes['multiflexible_min'];
+                        $maxvalue = $aQuestionAttributes['multiflexible_min'] + 10;
+                    }
+                    if (trim((string) $aQuestionAttributes['multiflexible_min']) != '' && trim((string) $aQuestionAttributes['multiflexible_max']) != '') {
+                        if ($aQuestionAttributes['multiflexible_min'] < $aQuestionAttributes['multiflexible_max']) {
+                            $minvalue = $aQuestionAttributes['multiflexible_min'];
+                            $maxvalue = $aQuestionAttributes['multiflexible_max'];
+                        }
+                    }
 
-                    if (trim((string) $aQuestionAttributes['multiflexible_step']) != '') {
-                        $stepvalue = $aQuestionAttributes['multiflexible_step'];
+                    $stepvalue = (trim((string) $aQuestionAttributes['multiflexible_step']) != '' && $aQuestionAttributes['multiflexible_step'] > 0) ? $aQuestionAttributes['multiflexible_step'] : 1;
+
+                    if ($aQuestionAttributes['reverse'] == 1) {
+                        $tmp = $minvalue;
+                        $minvalue = $maxvalue;
+                        $maxvalue = $tmp;
+                        $reverse = true;
+                        $stepvalue = -$stepvalue;
                     } else {
-                        $stepvalue = 1;
+                        $reverse = false;
                     }
 
                     if ($aQuestionAttributes['multiflexible_checkbox'] != 0) {
@@ -1457,6 +1460,7 @@ class statistics_helper
      * @param integer $usegraph
      * @param boolean $browse
      * @return array
+     * @psalm-suppress UndefinedVariable
      */
     protected function displaySimpleResults($outputs, $results, $rt, $outputType, $surveyid, $sql, $usegraph, $browse, $sLanguage)
     {
@@ -2136,8 +2140,7 @@ class statistics_helper
      * @param mixed $surveyid
      * @param mixed $sql
      * @param integer $usegraph
-     *
-     *
+     * @psalm-suppress UndefinedVariable
      */
     protected function displayResults($outputs, $results, $rt, $outputType, $surveyid, $sql, $usegraph, $browse, $sLanguage)
     {
@@ -2248,14 +2251,9 @@ class statistics_helper
                     $query .= ($sDatabaseType == "mysql") ?  Yii::app()->db->quoteColumnName($al[2])." <> '')" : " (".Yii::app()->db->quoteColumnName($al[2])." NOT LIKE ''))";
                 // all other question types
                 } else {
-                    $query = "SELECT count(*) FROM {{survey_$surveyid}} WHERE ".Yii::app()->db->quoteColumnName($al[2])." =";
-
-                    //ranking question?
-                    if (substr((string) $rt, 0, 1) == "R") {
-                        $query .= " '$al[0]'";
-                    } else {
-                        $query .= " 'Y'";
-                    }
+                    $value = (substr((string) $rt, 0, 1) == "R") ? $al[0] : 'Y';
+                    $encryptedValue = getEncryptedCondition($responseModel, $al[2], $value);
+                    $query = "SELECT count(*) FROM {{survey_$surveyid}} WHERE ".Yii::app()->db->quoteColumnName($al[2])." = '$encryptedValue'";
                 }
             }    //end if -> alist set
 
@@ -3501,6 +3499,7 @@ class statistics_helper
 
     /**
      * Generates statistics with subviews
+     * @psalm-suppress UndefinedVariable
      */
     public function generate_html_chartjs_statistics($surveyid, $allfields, $q2show = 'all', $usegraph = 0, $outputType = 'pdf', $pdfOutput = 'I', $sLanguageCode = null, $browse = true)
     {
@@ -3719,13 +3718,14 @@ class statistics_helper
     /**
      * Generates statistics
      *
-     * @param int $surveyid The survey id
+     * @param int $surveyid The survey ID
      * @param mixed $allfields
      * @param mixed $q2show
      * @param integer $usegraph
      * @param string $outputType Optional - Can be xls, html or pdf - Defaults to pdf
      * @param mixed $browse  Show browse buttons
      * @return string
+     * @psalm-suppress UndefinedVariable
      */
     public function generate_statistics($surveyid, $allfields, $q2show = 'all', $usegraph = 0, $outputType = 'pdf', $outputTarget = 'I', $sLanguageCode = null, $browse = true)
     {
@@ -3856,7 +3856,7 @@ class statistics_helper
             }
 
             // Creating the first worksheet
-            $this->sheet = $this->workbook->addWorksheet(utf8_decode('results-survey' . $surveyid));
+            $this->sheet = $this->workbook->addWorksheet(mb_convert_encoding('results-survey' . $surveyid, 'ISO-8859-1', 'UTF-8'));
             $this->xlsPercents = $this->workbook->addFormat();
             $this->xlsPercents->setNumFormat('0.00%');
             $this->formatBold = $this->workbook->addFormat(array('Bold' => 1));
