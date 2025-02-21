@@ -125,7 +125,7 @@ class Permissiontemplates extends CActiveRecord
         return $dateFormat['phpdate'];
     }
 
-    /**s
+    /**
      * Returns formatted 'created at' date.
      * @return string
      */
@@ -214,7 +214,7 @@ class Permissiontemplates extends CActiveRecord
                 'data-bs-toggle' => "modal",
                 'data-post-url'  => $deleteUrl,
                 'data-post-datas' => $deletePostData,
-                'data-message'   => sprintf(gt("Are you sure you want to delete user role '%s'?"), $this->name),
+                'data-message'   => sprintf(gt("Are you sure you want to delete user role '%s'?"), CHtml::encode($this->name)),
                 'data-bs-target' => "#confirmation-modal",
                 'data-btnclass'  => 'btn-danger',
                 'data-btntext'   => gt('Delete'),
@@ -312,7 +312,7 @@ class Permissiontemplates extends CActiveRecord
     }
 
     /**
-     * @param ??? $xmlEntitiy
+     * @param SimpleXMLElement $xmlEntitiy
      * @param boolean $includeRootData
      * @return Permissiontemplates|boolean
      */
