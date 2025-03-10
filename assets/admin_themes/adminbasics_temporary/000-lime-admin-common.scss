@@ -17,12 +17,6 @@
     text-decoration: underline;
 }
 
-.list-group {
-    border-radius: 0px !important;
-}
-.list-group-item {
-    border: none !important;
-}
 .hidden {
     display: none !important;
 }
@@ -75,13 +69,6 @@
 
 .ls-survey-menu-item.menu-label{
     padding-left: 33px !important;
-}
-
-.list-group-item.disabled {
-    color: #777;
-    cursor: not-allowed;
-    background-color: $white !important;
-    pointer-events: auto !important;
 }
 
 #ls-loading {
@@ -380,11 +367,6 @@ html {
     margin: 0;
 }
 
-#update-container {
-    margin-top: 10px;
-    z-index: 999;
-}
-
 #update-container .alert {
     margin-bottom: 5px;
 }
@@ -508,23 +490,6 @@ html {
     cursor: pointer;
     cursor: hand;
     border-radius: 0;
-}
-
-.welcome {
-    #lime-logo {
-        animation: fadein 1s;
-    }
-
-    .recent-activity {
-        margin-top: 1.72rem;
-        font-size: 0.95rem;
-        padding-right: 3rem;
-        opacity: 0.7;
-    }
-}
-
-#welcomeModal {
-    z-index: 20000;
 }
 
 @media screen and (min-width: 1280px) and (max-width: 1366px) {
@@ -1709,7 +1674,7 @@ iframe#dialog {
 /** Arrow between mapped attributes in CPDB */
 .tokenatt-arrow {
     position: absolute;
-    right: -0.5em;
+    right: -1.5em;
 }
 
 /** Arrow between mapped attributes in CPDB when doing CSV import */
@@ -1845,25 +1810,6 @@ a.explorer-group:focus {
 
 .statisticstable {
     word-wrap: break-word;
-}
-
-.summary-container,
-.summary,
-#massive-action-container,
-#surveyListActions,
-.listActions {
-    margin : 0 0 20px;
-}
-
-.summary-container {
-    text-align: right;
-}
-
-#massive-action-container,
-#surveyListActions,
-.listActions {
-    padding-left: 0px;
-    text-align: left;
 }
 
 .push-grid-pager {
@@ -2129,10 +2075,6 @@ table#responsedetail tr td {
     display: -ms-flexbox;
     display: flex;
     margin-bottom: 30px;
-}
-
-#insertmethod-container {
-    display: none;
 }
 
 
@@ -3452,18 +3394,6 @@ table.dataTable thead .sorting_desc:after {
 html[dir="rtl"] .dropdown-menu,
 html[dir="rtl"] th {
     text-align: initial;
-}
-
-.list-group-item.disabled {
-    color: #777;
-    cursor: not-allowed;
-    background-color: #eee;
-}
-
-.list-group-item.disabled {
-    color: #777;
-    cursor: not-allowed;
-    background-color: #eee;
 }
 
 #survey-nav {

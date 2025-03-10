@@ -35,7 +35,7 @@ class Tokens extends SurveyCommonAction
         $iSurveyId = (int) $iSurveyId;
         $survey = Survey::model()->findByPk($iSurveyId);
 
-        //// TODO : check if it does something different than the model function
+        //TODO : check if it does something different than the model function
         $thissurvey = getSurveyInfo($iSurveyId);
         if (
             !Permission::model()->hasSurveyPermission($iSurveyId, 'tokens', 'read') && !Permission::model()->hasSurveyPermission($iSurveyId, 'tokens', 'create') && !Permission::model()->hasSurveyPermission($iSurveyId, 'tokens', 'update')
@@ -143,6 +143,7 @@ class Tokens extends SurveyCommonAction
         $aData['massiveAction'] = App()->getController()->renderPartial('/admin/token/massive_actions/_selector', $aData, true, false);
 
         // CHECK TO SEE IF A Survey participants table EXISTS FOR THIS SURVEY
+        $aData['surveyActivationFeedback'] = Yii::app()->request->getParam('surveyActivationFeedback', null);
         if (!$survey->hasTokensTable) {
             $this->newtokentable($iSurveyId);
         } else {
@@ -736,17 +737,18 @@ class Tokens extends SurveyCommonAction
      * Edit Tokens
      * @param int $iSurveyId
      * @param int $iTokenId
-     * @param boolean $ajax
+     * @param null $deprecated in 6.5.5, used before to show partial view, move to Yii::app()->request->getIsAjaxRequest()
      * @return false|null
-     * @todo When is this function used without Ajax?
      */
-    public function edit($iSurveyId, $iTokenId, $ajax = false)
+    public function edit($iSurveyId, $iTokenId, $deprecated = null)
     {
         App()->getClientScript()->registerScriptFile(App()->getConfig('adminscripts') . 'tokens.js', LSYii_ClientScript::POS_BEGIN);
         $iSurveyId = (int) $iSurveyId;
         $iTokenId = (int) $iTokenId;
         $survey = Survey::model()->findByPk($iSurveyId);
-
+        $request = Yii::app()->request;
+        $ajax = $request->getIsAjaxRequest();
+        $redirect = $request->getPost('close-after-save');
         // Check permission
         if (!Permission::model()->hasSurveyPermission($iSurveyId, 'tokens', 'update')) {
             if ($ajax) {
@@ -765,8 +767,6 @@ class Tokens extends SurveyCommonAction
 
         Yii::app()->loadHelper("surveytranslator");
         $dateformatdetails = getDateFormatData(Yii::app()->session['dateformat']);
-
-        $request = Yii::app()->request;
 
         if ($request->getPost('subaction')) {
             Yii::import('application.helpers.admin.ajax_helper', true);
@@ -838,7 +838,14 @@ class Tokens extends SurveyCommonAction
                 foreach ($aAdditionalAttributeFields as $attr_name => $desc) {
                     $value = $request->getPost($attr_name, '');
                     if ($desc['mandatory'] == 'Y' && trim($value) == '') {
-                        $sOutput .= sprintf(gT("Notice: Field '%s' was left empty, even though it is a mandatory attribute."), $desc['description']) . '<br>';
+                        /* All this part is disable via JS, no way to submit : issue #19548 https://bugs.limesurvey.org/view.php?id=19548*/
+                        $warningString = sprintf(gT("Notice: Field '%s' (%s) was left empty, even though it is a mandatory attribute."), $desc['description'], $attr_name);
+                        if ($ajax) {
+                            $sOutput .= $warningString . '<br>';
+                        } else {
+                            App()->setFlashMessage($warningString, 'warning');
+                            $redirect = false; /* Do not redirecty to allow editing */
+                        }
                     }
                     $aTokenData[$attr_name] = $request->getPost($attr_name);
                 }
@@ -852,22 +859,42 @@ class Tokens extends SurveyCommonAction
                 foreach ($aTokenData as $k => $v) {
                     $token->$k = $v;
                 }
-
                 $result = $token->encryptSave(true);
 
                 if ($result) {
-                    \ls\ajax\AjaxHelper::outputSuccess(gT('The survey participant was successfully updated.'));
+                    if ($ajax) {
+                        \ls\ajax\AjaxHelper::outputSuccess(gT('The survey participant was successfully updated.'));
+                        // App->end in AjaxHelper
+                    }
+                    App()->setFlashMessage(gT('The survey participant was successfully updated.'), 'success');
+                    if ($redirect) {
+                        $redirectUrl = Yii::app()->createUrl(
+                            "admin/tokens",
+                            [
+                                "sa" => 'index',
+                                "surveyid" => $iSurveyId,
+                            ]
+                        );
+                        $this->getController()->redirect($redirectUrl);
+                    }
                 } else {
-                    $errors = $token->getErrors();
-                    $firstError = reset($errors);
-                    \ls\ajax\AjaxHelper::outputError($firstError[0]);
+                    if ($ajax) {
+                        $errors = $token->getErrors();
+                        $firstError = reset($errors);
+                        \ls\ajax\AjaxHelper::outputError($firstError[0]);
+                        // App->end in AjaxHelper
+                    }
+                    App()->setFlashMessage(CHtml::errorSummary($token, '<div><strong>' . gT('The survey participant was not updated.') . '</strong></div>'), 'danger');
                 }
             } else {
-                \ls\ajax\AjaxHelper::outputError(gT('There is already an entry with that exact access code in the table. The same access code cannot be used in multiple entries.'));
+                if ($ajax) {
+                    \ls\ajax\AjaxHelper::outputError(gT('There is already an entry with that exact access code in the table. The same access code cannot be used in multiple entries.'));
+                    // App->end in AjaxHelper
+                }
+                App()->setFlashMessage(gT('There is already an entry with that exact access code in the table. The same access code cannot be used in multiple entries.'), 'error');
             }
-        } else {
-            $this->handletokenform($iSurveyId, "edit", $iTokenId, $ajax);
         }
+        $this->handletokenform($iSurveyId, "edit", $iTokenId, $ajax);
     }
 
     /**
@@ -1026,7 +1053,11 @@ class Tokens extends SurveyCommonAction
             }
             $aData['thissurvey'] = getSurveyInfo($iSurveyId);
             $aData['surveyid'] = $iSurveyId;
-            if ($cntAttributeErrors > 0) { // attribute validation errors
+            if ($newDummyToken === 0) {
+                $aData['success'] = false;
+                Yii::app()->session['flashmessage'] = gT("No dummy participants were added.");
+                $this->getController()->redirect(array("/admin/tokens/sa/browse/surveyid/{$iSurveyId}"));
+            } elseif ($cntAttributeErrors > 0) { // attribute validation errors
                 $aData['dateformatdetails'] = getDateFormatData(Yii::app()->session['dateformat'], App()->language);
                 $aData['aAttributeFields'] = getParticipantAttributes($iSurveyId);
 
@@ -1080,7 +1111,8 @@ class Tokens extends SurveyCommonAction
                 [
                     'showSaveAndCloseButton' => true,
                     'showWhiteCloseButton' => true,
-                    'showSaveButton' => true,
+                    // Save button doesn’t apply to this screen
+                    'showSaveButton' => false,
                     'closeUrl' => Yii::app()->createUrl(
                         "admin/tokens",
                         [
@@ -1656,7 +1688,8 @@ class Tokens extends SurveyCommonAction
 
                     unset($fieldsarray);
                 }
-
+                // Closes a still active SMTP connection if it exists
+                $mail->smtpClose();
                 $aViewUrls = array();
                 $aData['tokenoutput'] = $tokenoutput;
 
@@ -2097,9 +2130,11 @@ class Tokens extends SurveyCommonAction
                     $aData['topBar']['rightSideView'] = 'tokensTopbarRight_view';
 
                     $sErrorMessage = ldap_error($ds);
-                    define("LDAP_OPT_DIAGNOSTIC_MESSAGE", 0x0032);
-                    if (ldap_get_option($ds, LDAP_OPT_DIAGNOSTIC_MESSAGE, $extended_error)) {
-                        $sErrorMessage .= ' - ' . $extended_error;
+                    /* Try to get more error @see https://github.com/adldap/adLDAP/pull/142 */
+                    if (defined('LDAP_OPT_DIAGNOSTIC_MESSAGE')) {
+                        if (ldap_get_option($ds, LDAP_OPT_DIAGNOSTIC_MESSAGE, $extended_error)) {
+                            $sErrorMessage .= ' - ' . $extended_error;
+                        }
                     }
                     $aData['sError'] = sprintf(gT("Can't bind to the LDAP directory. Error message: %s"), ldap_error($ds));
                     $this->renderWrappedTemplate('token', array('ldapform'), $aData);
@@ -2670,10 +2705,10 @@ class Tokens extends SurveyCommonAction
      * @param int $iSurveyId
      * @param string $subaction
      * @param integer $iTokenId
-     * @param boolean $ajax
+     * @param null $deprecated in 6.5.5, used before to show partial view, move to Yii::app()->request->getIsAjaxRequest()
      * @return void
      */
-    public function handletokenform($iSurveyId, $subaction, $iTokenId = "", $ajax = false)
+    public function handletokenform($iSurveyId, $subaction, $iTokenId = "", $deprecated = null)
     {
         $oSurvey = Survey::model()->findByPk($iSurveyId);
         if (!$oSurvey->hasTokensTable) {
@@ -2692,7 +2727,8 @@ class Tokens extends SurveyCommonAction
         }
 
         $aData['iTokenLength'] = !empty(Token::model($iSurveyId)->survey->oOptions->tokenlength) ? Token::model($iSurveyId)->survey->oOptions->tokenlength : 15;
-
+        /* @var boolean is it an ajax request */
+        $ajax = App()->request->getIsAjaxRequest();
 
         $thissurvey = $oSurvey->attributes;
         $aAdditionalAttributeFields = $oSurvey->decodedAttributedescriptions;
@@ -2726,6 +2762,7 @@ class Tokens extends SurveyCommonAction
             '/surveyAdministration/partial/topbar/surveyTopbarRight_view',
             [
                 'showGreenSaveAndCloseButton' => true,
+                'showSaveButton' => true,
                 'showWhiteCloseButton' => true,
                 'closeUrl' => Yii::app()->createUrl(
                     "admin/tokens",
@@ -2756,7 +2793,10 @@ class Tokens extends SurveyCommonAction
     {
         $aSurveyInfo = getSurveyInfo($iSurveyId);
         $survey = Survey::model()->findByPk($iSurveyId);
-        if (!Permission::model()->hasSurveyPermission($iSurveyId, 'surveysettings', 'update') && !Permission::model()->hasSurveyPermission($iSurveyId, 'tokens', 'create')) {
+        if (
+            !Permission::model()->hasSurveyPermission($iSurveyId, 'surveysettings', 'update') &&
+            !Permission::model()->hasSurveyPermission($iSurveyId, 'tokens', 'create')
+        ) {
             Yii::app()->session['flashmessage'] = gT("Survey participants have not been initialised for this survey.");
             $this->getController()->redirect(array("/surveyAdministration/view/surveyid/{$iSurveyId}"));
         }
@@ -2812,7 +2852,7 @@ class Tokens extends SurveyCommonAction
                 }
                 $attributedescriptions = $archivedTableSettings->attributes;
                 $attributedescriptionsOld = $aSurveyInfo['attributedescriptions'];
-                $attributedescriptionsArray = json_decode((string) $attributedescriptions, true);
+                $attributedescriptionsArray = json_decode((string) $attributedescriptions, true) ?? [];
                 foreach ($attributedescriptionsArray as $attributedescription) {
                     // if the encryption status is unknown
                     if ($attributedescription === 'unknown') {
@@ -2872,7 +2912,7 @@ class Tokens extends SurveyCommonAction
                     $aData
                 );
             }
-        } else {
+        } else { //this is the case when "allowPublicRegistration" = Y and no token table has been created
             Yii::app()->loadHelper('database');
             Survey::model()->updateByPk($iSurveyId, array('tokenencryptionoptions' => ls_json_encode($aTokenencryptionoptions)));
             $result = Yii::app()->db->createCommand(dbSelectTablesLike("{{old_tokens_" . intval($iSurveyId) . "_%}}"))->queryAll();
