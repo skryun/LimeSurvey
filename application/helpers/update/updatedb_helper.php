@@ -49,7 +49,7 @@ function db_upgrade_all($iOldDBVersion, $bSilent = false)
 {
     /**
      * If you add a new database version add any critical database version numbers to this array. See link
-     * @link https://manual.limesurvey.org/Database_versioning for explanations
+     * @link https://www.limesurvey.org/manual/Database_versioning for explanations
      * @var array $aCriticalDBVersions An array of cricital database version.
      */
     $aCriticalDBVersions = array(310, 400, 450, 600);
@@ -463,6 +463,7 @@ function decryptArchivedTables450($oDB)
  * @param $survey
  * @return array
  * @throws CException
+ * @psalm-suppress RedundantCondition
  */
 function createFieldMap450($survey): array
 {
@@ -2493,7 +2494,7 @@ function upgradeTokens145()
 {
     $aTables = dbGetTablesLike("tokens%");
     foreach ($aTables as $sTable) {
-        addColumn($sTable, 'usesleft', "integer NOT NULL default 1");
+        addColumn($sTable, 'usesleft', "integer NOT NULL DEFAULT 1");
         Yii::app()->getDb()->createCommand()->update($sTable, array('usesleft' => '0'), "completed<>'N'");
     }
 }
@@ -2806,7 +2807,7 @@ function alterColumn($sTable, $sColumn, $sFieldType, $bAllowNull = true, $sDefau
             }
             $oDB->createCommand()->alterColumn($sTable, $sColumn, $sType);
             if ($sDefault != 'NULL') {
-                $oDB->createCommand("ALTER TABLE {$sTable} ADD default '{$sDefault}' FOR [{$sColumn}];")->execute();
+                $oDB->createCommand("ALTER TABLE {$sTable} ADD DEFAULT '{$sDefault}' FOR [{$sColumn}];")->execute();
             }
             break;
         case 'pgsql':
@@ -3198,7 +3199,7 @@ function regenerateLabelCodes400(int $lid, $hasLanguageColumn = true)
     $oDB = Yii::app()->getDb();
 
     $labelSet = $oDB->createCommand(
-        sprintf("SELECT * FROM {{labelsets}} WHERE lid = %d", (int) $lid)
+        sprintf("SELECT * FROM {{labelsets}} WHERE lid = %d", $lid)
     )->queryRow();
     if (empty($labelSet)) {
         // No belonging label set, remove orphan labels.
@@ -3206,7 +3207,7 @@ function regenerateLabelCodes400(int $lid, $hasLanguageColumn = true)
         $oDB->createCommand(
             sprintf(
                 'DELETE FROM {{labels}} WHERE lid = %d',
-                (int) $lid
+                $lid
             )
         )->execute();
         return;
@@ -3216,12 +3217,12 @@ function regenerateLabelCodes400(int $lid, $hasLanguageColumn = true)
         if ($hasLanguageColumn) {
             $query = sprintf(
                 "SELECT * FROM {{labels}} WHERE lid = %d AND language = %s",
-                (int) $lid,
+                $lid,
                 $oDB->quoteValue($lang)
             );
         } else {
             // When this function is used in update 475, the language column is already moved.
-            $query = sprintf("SELECT * FROM {{labels}} WHERE lid = %d", (int) $lid);
+            $query = sprintf("SELECT * FROM {{labels}} WHERE lid = %d", $lid);
         }
         $labels = $oDB->createCommand($query)->queryAll();
         if (empty($labels)) {
@@ -3231,7 +3232,7 @@ function regenerateLabelCodes400(int $lid, $hasLanguageColumn = true)
             $oDB->createCommand(
                 sprintf(
                     "UPDATE {{labels}} SET code = %s WHERE id = %d",
-                    $oDB->quoteValue("L" . (string) ($key + 1)),
+                    $oDB->quoteValue("L" . (string) ((int) $key + 1)),
                     $label['id']
                 )
             )->execute();
