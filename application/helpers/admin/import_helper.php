@@ -18,7 +18,7 @@ use LimeSurvey\Helpers\questionHelper;
  * This function imports a LimeSurvey .lsg question group XML file
  *
  * @param string  $sFullFilePath The full filepath of the uploaded file
- * @param integer $iNewSID       The new survey id - the page will always be added after the last page in the survey
+ * @param integer $iNewSID       The new survey ID - the page will always be added after the last page in the survey
  * @param boolean $bTranslateLinksFields
  *
  * @return mixed
@@ -593,7 +593,7 @@ function XMLImportGroup($sFullFilePath, $iNewSID, $bTranslateLinksFields)
  * This function imports a LimeSurvey .lsq question XML file
  *
  * @param string $sFullFilePath The full filepath of the uploaded file
- * @param integer $iNewSID The new survey id
+ * @param integer $iNewSID The new survey ID
  * @param $iNewGID
  * @param bool[] $options
  * @return array
@@ -605,7 +605,7 @@ function XMLImportQuestion($sFullFilePath, $iNewSID, $iNewGID, $options = array(
     $sXMLdata = file_get_contents($sFullFilePath);
     $xml = simplexml_load_string($sXMLdata, 'SimpleXMLElement', LIBXML_NONET);
     if ($xml->LimeSurveyDocType != 'Question') {
-        throw new Exception('This is not a valid LimeSurvey question structure XML file.');
+        throw new \CHttpException(500, 'This is not a valid LimeSurvey question structure XML file.');
     }
     $iDBVersion = (int) $xml->DBVersion;
     $aQIDReplacements = array();
@@ -664,6 +664,7 @@ function XMLImportQuestion($sFullFilePath, $iNewSID, $iNewGID, $options = array(
             // TODO: Should this depend on $options['translinkfields']?
             $insertdata['question'] = translateLinks('survey', $iOldSID, $iNewSID, $insertdata['question']);
             $insertdata['help'] = translateLinks('survey', $iOldSID, $iNewSID, $insertdata['help']);
+            // @todo Should only be executed based on dbversion of the file, otherwise this and possible in new format could be imported at the same time
             $oQuestionL10n = new QuestionL10n();
             $oQuestionL10n->question = $insertdata['question'];
             $oQuestionL10n->help = $insertdata['help'];
@@ -859,7 +860,7 @@ function XMLImportQuestion($sFullFilePath, $iNewSID, $iNewGID, $options = array(
             if (isset($aQIDReplacements[$insertdata['qid']])) {
                 $insertdata['qid'] = $aQIDReplacements[$insertdata['qid']];
             } else {
-                continue; //Skip invalid group ID
+                continue; //Skip invalid question ID
             }
             $oQuestionL10n = new QuestionL10n();
             $oQuestionL10n->setAttributes($insertdata, false);
@@ -1063,7 +1064,7 @@ function XMLImportQuestion($sFullFilePath, $iNewSID, $iNewGID, $options = array(
 * Function resp[onsible to import a labelset from XML format.
 * @param string $sFullFilePath
 * @param mixed $options
-* @return
+* @return array Array with count of imported labelsets, labels, warning, etc.
 */
 function XMLImportLabelsets($sFullFilePath, $options)
 {
@@ -1090,6 +1091,7 @@ function XMLImportLabelsets($sFullFilePath, $options)
         // Insert the new question
         $arLabelset = new LabelSet();
         $arLabelset->setAttributes($insertdata);
+        $arLabelset->setAttribute('owner_id', App()->user->getId());
         $arLabelset->save();
         $aLSIDReplacements[$iOldLabelSetID] = $arLabelset->lid; // add old and new lsid to the mapping array
         $results['labelsets']++;
@@ -1170,12 +1172,36 @@ function XMLImportLabelsets($sFullFilePath, $options)
 }
 
 /**
- * @param string $sFullFilePath
- * @param boolean $bTranslateLinksFields
- * @param string $sNewSurveyName
- * @param integer $DestSurveyID
+ * @param int|string  $newsid
+ * @param string|null $baselang
  */
-function importSurveyFile($sFullFilePath, $bTranslateLinksFields, $sNewSurveyName = null, $DestSurveyID = null)
+function finalizeSurveyImportFile($newsid, $baselang)
+{
+    if ($baselang) {
+        $survey = Survey::model()->findByPk($newsid);
+        $supportedLanguages = explode(" ", $survey->language . " " . $survey->additional_languages);
+        $found = in_array($baselang, $supportedLanguages);
+        if (!$found) {
+            $baselang = explode("-", $baselang)[0];
+            $found = in_array($baselang, $supportedLanguages);
+        }
+        if ($found) {
+            $survey->language = $baselang;
+            $survey->additional_languages = '';
+            $survey->save();
+            fixLanguageConsistency($newsid);
+        }
+    }
+}
+
+/**
+ * @param string       $sFullFilePath
+ * @param boolean      $bTranslateLinksFields
+ * @param string|null  $sNewSurveyName
+ * @param integer|null $DestSurveyID
+ * @param string|null  $baselang
+ */
+function importSurveyFile($sFullFilePath, $bTranslateLinksFields, $sNewSurveyName = null, $DestSurveyID = null, $baselang = null)
 {
     $aPathInfo = pathinfo($sFullFilePath);
     if (isset($aPathInfo['extension'])) {
@@ -1189,6 +1215,7 @@ function importSurveyFile($sFullFilePath, $bTranslateLinksFields, $sNewSurveyNam
             if (!empty($aImportResults['newsid'])) {
                 $SurveyIntegrity = new LimeSurvey\Models\Services\SurveyIntegrity(Survey::model()->findByPk($aImportResults['newsid']));
                 $SurveyIntegrity->fixSurveyIntegrity();
+                finalizeSurveyImportFile($aImportResults['newsid'], $baselang);
             }
             return $aImportResults;
         case 'txt':
@@ -1197,23 +1224,30 @@ function importSurveyFile($sFullFilePath, $bTranslateLinksFields, $sNewSurveyNam
             if ($aImportResults && $aImportResults['newsid']) {
                 $SurveyIntegrity = new LimeSurvey\Models\Services\SurveyIntegrity(Survey::model()->findByPk($aImportResults['newsid']));
                 $SurveyIntegrity->fixSurveyIntegrity();
+                finalizeSurveyImportFile($aImportResults['newsid'], $baselang);
             }
             return $aImportResults;
         case 'lsa':
             // Import a survey archive
-            Yii::app()->loadLibrary('admin.pclzip');
-            $pclzip = new PclZip(array('p_zipname' => $sFullFilePath));
-            $aFiles = $pclzip->listContent();
+            $zipExtractor = new \LimeSurvey\Models\Services\ZipExtractor($sFullFilePath);
+            // If file extension is not lss, lsr, lsi or lst, skip it
+            $zipExtractor->setFilterCallback(fn($file) => preg_match('/(lss|lsr|lsi|lst)$/', $file['name']));
+            $zipExtractor->extractTo(Yii::app()->getConfig('tempdir'));
 
-            if ($pclzip->extract(PCLZIP_OPT_PATH, Yii::app()->getConfig('tempdir') . DIRECTORY_SEPARATOR, PCLZIP_OPT_BY_EREG, '/(lss|lsr|lsi|lst)$/') == 0) {
-                unset($pclzip);
-            }
+            $extractResults = $zipExtractor->getExtractResult();
+            $files = array_map(fn($file) => $file['name'], $extractResults);
+
             $aImportResults = [];
+
+            if (empty($files)) {
+                $aImportResults['error'] = gT("This is not a valid LimeSurvey LSA file.");
+                return $aImportResults;
+            }
             // Step 1 - import the LSS file and activate the survey
-            foreach ($aFiles as $aFile) {
-                if (pathinfo((string) $aFile['filename'], PATHINFO_EXTENSION) == 'lss') {
+            foreach ($files as $filename) {
+                if (pathinfo((string) $filename, PATHINFO_EXTENSION) == 'lss') {
                     //Import the LSS file
-                    $aImportResults = XMLImportSurvey(Yii::app()->getConfig('tempdir') . DIRECTORY_SEPARATOR . $aFile['filename'], null, $sNewSurveyName, null, true, false);
+                    $aImportResults = XMLImportSurvey(Yii::app()->getConfig('tempdir') . DIRECTORY_SEPARATOR . $filename, null, $sNewSurveyName, null, true, false);
                     if ($aImportResults && $aImportResults['newsid']) {
                         $SurveyIntegrity = new LimeSurvey\Models\Services\SurveyIntegrity(Survey::model()->findByPk($aImportResults['newsid']));
                         $SurveyIntegrity->fixSurveyIntegrity();
@@ -1223,51 +1257,54 @@ function importSurveyFile($sFullFilePath, $bTranslateLinksFields, $sNewSurveyNam
                     $survey = Survey::model()->findByPk($aImportResults['newsid']);
                     $surveyActivator = new SurveyActivator($survey);
                     $surveyActivator->activate();
-                    unlink(Yii::app()->getConfig('tempdir') . DIRECTORY_SEPARATOR . $aFile['filename']);
+                    unlink(Yii::app()->getConfig('tempdir') . DIRECTORY_SEPARATOR . $filename);
                     break;
                 }
             }
 
             // Step 2 - import the responses file
-            foreach ($aFiles as $aFile) {
-                if (pathinfo((string) $aFile['filename'], PATHINFO_EXTENSION) == 'lsr') {
+            foreach ($files as $filename) {
+                if (pathinfo((string) $filename, PATHINFO_EXTENSION) == 'lsr') {
                     //Import the LSS file
-                    $aResponseImportResults = XMLImportResponses(Yii::app()->getConfig('tempdir') . DIRECTORY_SEPARATOR . $aFile['filename'], $aImportResults['newsid'], $aImportResults['FieldReMap']);
+                    $aResponseImportResults = XMLImportResponses(Yii::app()->getConfig('tempdir') . DIRECTORY_SEPARATOR . $filename, $aImportResults['newsid'], $aImportResults['FieldReMap']);
                     $aImportResults = array_merge($aResponseImportResults, $aImportResults);
                     $aImportResults['importwarnings'] = array_merge($aImportResults['importwarnings'], $aImportResults['warnings']);
-                    unlink(Yii::app()->getConfig('tempdir') . DIRECTORY_SEPARATOR . $aFile['filename']);
+                    unlink(Yii::app()->getConfig('tempdir') . DIRECTORY_SEPARATOR . $filename);
                     break;
                 }
             }
 
             // Step 3 - import the tokens file - if exists
-            foreach ($aFiles as $aFile) {
-                if (pathinfo((string) $aFile['filename'], PATHINFO_EXTENSION) == 'lst') {
+            foreach ($files as $filename) {
+                if (pathinfo((string) $filename, PATHINFO_EXTENSION) == 'lst') {
                     Yii::app()->loadHelper("admin/token");
                     $aTokenImportResults = [];
                     if (Token::createTable($aImportResults['newsid'])) {
                         $aTokenCreateResults = array('tokentablecreated' => true);
                         $aImportResults = array_merge($aTokenCreateResults, $aImportResults);
-                        $aTokenImportResults = XMLImportTokens(Yii::app()->getConfig('tempdir') . DIRECTORY_SEPARATOR . $aFile['filename'], $aImportResults['newsid']);
+                        $aTokenImportResults = XMLImportTokens(Yii::app()->getConfig('tempdir') . DIRECTORY_SEPARATOR . $filename, $aImportResults['newsid']);
                     } else {
                         $aTokenImportResults['warnings'][] = gT("Unable to create survey participants table");
                     }
 
                     $aImportResults = array_merge_recursive($aTokenImportResults, $aImportResults);
                     $aImportResults['importwarnings'] = array_merge($aImportResults['importwarnings'], $aImportResults['warnings']);
-                    unlink(Yii::app()->getConfig('tempdir') . DIRECTORY_SEPARATOR . $aFile['filename']);
+                    unlink(Yii::app()->getConfig('tempdir') . DIRECTORY_SEPARATOR . $filename);
                     break;
                 }
             }
             // Step 4 - import the timings file - if exists
             Yii::app()->db->schema->refresh();
-            foreach ($aFiles as $aFile) {
-                if (pathinfo((string) $aFile['filename'], PATHINFO_EXTENSION) == 'lsi' && tableExists("survey_{$aImportResults['newsid']}_timings")) {
-                    $aTimingsImportResults = XMLImportTimings(Yii::app()->getConfig('tempdir') . DIRECTORY_SEPARATOR . $aFile['filename'], $aImportResults['newsid'], $aImportResults['FieldReMap']);
+            foreach ($files as $filename) {
+                if (pathinfo((string) $filename, PATHINFO_EXTENSION) == 'lsi' && tableExists("survey_{$aImportResults['newsid']}_timings")) {
+                    $aTimingsImportResults = XMLImportTimings(Yii::app()->getConfig('tempdir') . DIRECTORY_SEPARATOR . $filename, $aImportResults['newsid'], $aImportResults['FieldReMap']);
                     $aImportResults = array_merge($aTimingsImportResults, $aImportResults);
-                    unlink(Yii::app()->getConfig('tempdir') . DIRECTORY_SEPARATOR . $aFile['filename']);
+                    unlink(Yii::app()->getConfig('tempdir') . DIRECTORY_SEPARATOR . $filename);
                     break;
                 }
+            }
+            if ($aImportResults && isset($aImportResults['newsid'])) {
+                finalizeSurveyImportFile($aImportResults['newsid'], $baselang);
             }
             return $aImportResults;
         default:
@@ -1277,12 +1314,25 @@ function importSurveyFile($sFullFilePath, $bTranslateLinksFields, $sNewSurveyNam
 }
 
 /**
-* This function imports a LimeSurvey .lss survey XML file
-*
-* @param string $sFullFilePath  The full filepath of the uploaded file
-* @param string $sXMLdata
-* @todo Use transactions to prevent orphaned data and clean rollback on errors
-*/
+ * Imports a survey from an XML file or XML data string.
+ *
+ * This function processes the XML data to import a survey, including its questions, groups, and language settings.
+ * It handles various aspects such as translating links, converting question codes, and managing attachments.
+ *
+ * @param string $sFullFilePath The full file path to the XML file (optional if $sXMLdata is provided)
+ * @param string|null $sXMLdata The XML data as a string (optional if $sFullFilePath is provided)
+ * @param string|null $sNewSurveyName The new name for the survey if it's being copied
+ * @param int|null $iDesiredSurveyId The desired ID for the new survey (optional)
+ * @param bool $bTranslateInsertansTags Whether to translate insertans tags (default true)
+ * @param bool $bConvertInvalidQuestionCodes Whether to convert invalid question codes (default true)
+ * @return array An array containing the results of the import process, including:
+ *               - 'error': Any error message if the import failed
+ *               - 'newsid': The ID of the newly created survey
+ *               - 'oldsid': The ID of the original survey in the XML
+ *               - Various counters for imported elements (questions, groups, etc.)
+ *               - 'importwarnings': An array of warning messages
+ * @todo Use transactions to prevent orphaned data and clean rollback on errors
+ */
 function XMLImportSurvey($sFullFilePath, $sXMLdata = null, $sNewSurveyName = null, $iDesiredSurveyId = null, $bTranslateInsertansTags = true, $bConvertInvalidQuestionCodes = true)
 {
     $isCopying = ($sNewSurveyName != null);
@@ -1323,6 +1373,8 @@ function XMLImportSurvey($sFullFilePath, $sXMLdata = null, $sNewSurveyName = nul
     $results['theme_options_differences'] = array();
     $sTemplateName = '';
 
+    /** @var bool Indicates if the email templates have attachments with untranslated URLs or not */
+    $hasOldAttachments = false;
 
     $aLanguagesSupported = array();
     foreach ($xml->languages->language as $language) {
@@ -1331,8 +1383,11 @@ function XMLImportSurvey($sFullFilePath, $sXMLdata = null, $sNewSurveyName = nul
 
     $results['languages'] = count($aLanguagesSupported);
 
-    // Import surveys table ====================================================
-
+    // Import survey entry  ====================================================
+    if (!isset($xml->surveys->rows->row)) {
+        $results['error'] = gT("XML Parsing Error: Missing or malformed element of type 'survey'");
+        return $results;
+    }
     foreach ($xml->surveys->rows->row as $row) {
         $insertdata = array();
 
@@ -1347,12 +1402,11 @@ function XMLImportSurvey($sFullFilePath, $sXMLdata = null, $sNewSurveyName = nul
             $insertdata[(string) $key] = (string) $value;
         }
         $iOldSID = $results['oldsid'] = $insertdata['sid'];
-        // Fix#14609 wishSID overwrite sid
         if (!is_null($iDesiredSurveyId)) {
             $insertdata['sid'] = $iDesiredSurveyId;
         }
-
         if ($iDBVersion < 145) {
+            // Convert to new field names
             if (isset($insertdata['private'])) {
                 $insertdata['anonymized'] = $insertdata['private'];
             }
@@ -1413,6 +1467,9 @@ function XMLImportSurvey($sFullFilePath, $sXMLdata = null, $sNewSurveyName = nul
             return $results;
         }
     }
+
+    // Single flag to indicate if the attachements format is wrong, to avoid showing the warning multiple times
+    $wrongAttachmentsFormat = false;
 
     // Import survey languagesettings table ===================================================================================
     foreach ($xml->surveys_languagesettings->rows->row as $row) {
@@ -1483,6 +1540,35 @@ function XMLImportSurvey($sFullFilePath, $sXMLdata = null, $sNewSurveyName = nul
             }
         }
 
+        // Email attachments are with relative paths on the file, but are currently expected to be saved as absolute.
+        // Transforming them from relative paths to absolute paths.
+        if (!empty($insertdata['attachments'])) {
+            // NOTE: Older LSS files have attachments as a serialized array, while newer ones have it as a JSON string.
+            // Serialized attachments are not supported anymore.
+            $attachments = json_decode($insertdata['attachments'], true);
+            if (!empty($attachments) && is_array($attachments)) {
+                $uploadDir = realpath(Yii::app()->getConfig('uploaddir'));
+                foreach ($attachments as &$template) {
+                    foreach ($template as &$attachment) {
+                        if (!isAbsolutePath($attachment['url'])) {
+                            $attachment['url'] = $uploadDir . DIRECTORY_SEPARATOR . $attachment['url'];
+                        }
+                        if ($bTranslateInsertansTags) {
+                            $attachment['url'] = translateLinks('survey', $iOldSID, $iNewSID, $attachment['url'], true);
+                        }
+                    }
+                    // If links are not translated and the email templates have attachments, we need to show a warning
+                    if (!$bTranslateInsertansTags && !empty($template)) {
+                        $hasOldAttachments = true;
+                    }
+                }
+            } elseif (is_null($attachments)) {
+                // JSON decode failed. Most probably the attachments were in the PHP serialization format.
+                $wrongAttachmentsFormat = true;
+            }
+            $insertdata['attachments'] = serialize($attachments);
+        }
+
         if (isset($insertdata['surveyls_attributecaptions']) && substr((string) $insertdata['surveyls_attributecaptions'], 0, 1) != '{') {
             unset($insertdata['surveyls_attributecaptions']);
         }
@@ -1504,13 +1590,27 @@ function XMLImportSurvey($sFullFilePath, $sXMLdata = null, $sNewSurveyName = nul
                 $surveyLanguageSetting->clearErrors('surveyls_alias');
             }
             if (!$surveyLanguageSetting->save()) {
-                throw new Exception(gT("Error") . ": Failed to import survey language settings - data is invalid.");
+                $errors = $surveyLanguageSetting->errors;
+                // Clean up 
+                Survey::model()->deleteSurvey($iNewSID);
+                $errorsStr = '';
+                foreach ($errors as $attribute => $error) {
+                    $errorsStr.= $error[0]. "\n";
+                }
+                throw new Exception(gT("Error: Failed to import survey language settings.") . " " . $errorsStr);
             }
         } catch (CDbException $e) {
             throw new Exception(gT("Error") . ": Failed to import survey language settings - data is invalid.");
         }
     }
 
+    if ($wrongAttachmentsFormat) {
+        $results['importwarnings'][] = gT("The email attachments have not been imported because they were in an old format.");
+    }
+
+    if ($hasOldAttachments) {
+        $results['importwarnings'][] = gT("Email templates have attachments but the resources have not been copied. Please update the attachments manually.");
+    }
 
     // Import groups table ===================================================================================
     if (isset($xml->groups->rows->row)) {
@@ -1589,7 +1689,7 @@ function XMLImportSurvey($sFullFilePath, $sXMLdata = null, $sNewSurveyName = nul
             }
             // #14646: fix utf8 encoding issue
             if (!mb_detect_encoding($insertdata['group_name'], 'UTF-8', true)) {
-                $insertdata['group_name'] = utf8_encode($insertdata['group_name']);
+                $insertdata['group_name'] = mb_convert_encoding($insertdata['group_name'], 'UTF-8', 'ISO-8859-1');
             }
             // Insert the new group
             $oQuestionGroupL10n = new QuestionGroupL10n();
@@ -2153,6 +2253,7 @@ function XMLImportSurvey($sFullFilePath, $sXMLdata = null, $sNewSurveyName = nul
 
     // Import assessments --------------------------------------------------------
     if (isset($xml->assessments)) {
+        $aASIDReplacements = [];
         foreach ($xml->assessments->rows->row as $row) {
             $insertdata = array();
             foreach ($row as $key => $value) {
@@ -2172,7 +2273,7 @@ function XMLImportSurvey($sFullFilePath, $sXMLdata = null, $sNewSurveyName = nul
                 $insertdata['gid'] = $aGIDReplacements[(int) $insertdata['gid']]; // remap the qid
             }
 
-            $insertdata['sid'] = $iNewSID; // remap the survey id
+            $insertdata['sid'] = $iNewSID; // remap the survey ID
             // now translate any links
             $result = Assessment::model()->insertRecords($insertdata);
             if (!$result) {
@@ -2196,7 +2297,7 @@ function XMLImportSurvey($sFullFilePath, $sXMLdata = null, $sNewSurveyName = nul
             if (!isset($insertdata['id']) || (int)$insertdata['id'] < 1) {
                 continue;
             }
-            $insertdata['sid'] = $iNewSID; // remap the survey id
+            $insertdata['sid'] = $iNewSID; // remap the survey ID
             $oldid = $insertdata['id'];
             unset($insertdata['id']);
             // now translate any links
@@ -2220,7 +2321,7 @@ function XMLImportSurvey($sFullFilePath, $sXMLdata = null, $sNewSurveyName = nul
             if (!isset($insertdata['quota_id']) || (int)$insertdata['quota_id'] < 1) {
                 continue;
             }
-            $insertdata['sid'] = $iNewSID; // remap the survey id
+            $insertdata['sid'] = $iNewSID; // remap the survey ID
             $insertdata['qid'] = $aQIDReplacements[(int) $insertdata['qid']]; // remap the qid
             if (isset($insertdata['quota_id'])) {
                 $insertdata['quota_id'] = $aQuotaReplacements[(int) $insertdata['quota_id']]; // remap the qid
@@ -2256,13 +2357,16 @@ function XMLImportSurvey($sFullFilePath, $sXMLdata = null, $sNewSurveyName = nul
             if (!isset($insertdata['quotals_quota_id']) || (int)$insertdata['quotals_quota_id'] < 1) {
                 continue;
             }
-            $insertdata['autoload_url'] = 0; // used to bypass urlValidator check in QuotaLanguageSetting model
             $insertdata['quotals_quota_id'] = $aQuotaReplacements[(int) $insertdata['quotals_quota_id']]; // remap the qid
             unset($insertdata['quotals_id']);
-            $quotaLanguagesSetting = new QuotaLanguageSetting();
+            $quotaLanguagesSetting = new QuotaLanguageSetting('import');
             $quotaLanguagesSetting->setAttributes($insertdata, false);
             if (!$quotaLanguagesSetting->save()) {
-                throw new Exception(gT("Error") . ": Failed to insert data<br />");
+                $header = sprintf(gT("Unable to insert quota language settings for quota %s"), $insertdata['quotals_quota_id']);
+                if (isset($insertdata['quotals_language'])) {
+                    $header = sprintf(gT("Unable to insert quota language settings for quota %s and language %s"), $insertdata['quotals_quota_id'], $insertdata['quotals_language']);
+                }
+                $results['importwarnings'][] = CHtml::errorSummary($quotaLanguagesSetting, $header);
             }
             $results['quotals']++;
         }
@@ -2275,7 +2379,7 @@ function XMLImportSurvey($sFullFilePath, $sXMLdata = null, $sNewSurveyName = nul
             foreach ($row as $key => $value) {
                 $insertdata[(string) $key] = (string) $value;
             }
-            $insertdata['sid'] = $iNewSID; // remap the survey id
+            $insertdata['sid'] = $iNewSID; // remap the survey ID
             if (isset($insertdata['targetsqid']) && $insertdata['targetsqid'] != '') {
                 $insertdata['targetsqid'] = $aQIDReplacements[(int) $insertdata['targetsqid']]; // remap the qid
             }
@@ -2337,7 +2441,7 @@ function XMLImportSurvey($sFullFilePath, $sXMLdata = null, $sNewSurveyName = nul
         if (!empty($sTemplateName)) {
             $oTemplateConfigurationCurrent = TemplateConfiguration::getInstance($sTemplateName);
             //$oTemplateConfigurationCurrent->bUseMagicInherit = true;
-            $aTemplateConfiguration['theme_current']['options'] = (array)json_decode((string) $oTemplateConfigurationCurrent->attributes['options']);
+            $aTemplateConfiguration['theme_current']['options'] = json_decode((string) $oTemplateConfigurationCurrent->attributes['options'], true);
         }
 
         // survey theme options
@@ -2533,6 +2637,8 @@ function XMLImportResponses($sFullFilePath, $iSurveyID, $aFieldReMap = array())
         libxml_disable_entity_loader(true);
     }
     if (Yii::app()->db->schema->getTable($survey->responsesTableName) !== null) {
+        // Refresh metadata to make sure it reflects the current survey
+        SurveyDynamic::model($iSurveyID)->refreshMetadata();
         $DestinationFields = Yii::app()->db->schema->getTable($survey->responsesTableName)->getColumnNames();
         while ($oXMLReader->read()) {
             if ($oXMLReader->name === 'LimeSurveyDocType' && $oXMLReader->nodeType == XMLReader::ELEMENT) {
@@ -2568,7 +2674,14 @@ function XMLImportResponses($sFullFilePath, $iSurveyID, $aFieldReMap = array())
                                 }
                             }
                         }
-                        if (!SurveyDynamic::model($iSurveyID)->insertRecords($aInsertData)) {
+                        try {
+                            SurveyDynamic::sid($iSurveyID);
+                            $response = new SurveyDynamic();
+                            $response->setAttributes($aInsertData, false);
+                            if (!$response->encryptSave()) {
+                                throw new Exception("Failed to save response data.");
+                            }
+                        } catch (Exception $e) {
                             throw new Exception(gT("Error") . ": Failed to insert data in response table<br />");
                         }
                         $results['responses']++;

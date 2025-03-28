@@ -17,6 +17,7 @@ $thismaintenancemode             = !empty(getGlobalSetting('maintenancemode')) ?
 $thisdefaultquestionselectormode = getGlobalSetting('defaultquestionselectormode');
 $thisdefaultthemeteeditormode    = getGlobalSetting('defaultthemeteeditormode');
 $dateformatdata                  = getDateFormatData(Yii::app()->session['dateformat']);
+$defaultBreadcrumbMode           = Yii::app()->getConfig('defaultBreadcrumbMode');
 ?>
 
 <div class="container">
@@ -42,8 +43,8 @@ $dateformatdata                  = getDateFormatData(Yii::app()->session['datefo
             <div class="col-12">
                 <select class="form-select" name="defaulttheme" id="defaulttheme">
                     <?php foreach ($templatenames as $templatename) : ?>
-                        <option value='<?php echo $templatename; ?>' <?php echo ($thisdefaulttheme == $templatename) ? "selected='selected'" : "" ?> >
-                            <?php echo $templatename; ?>
+                        <option value='<?php echo CHtml::encode($templatename); ?>' <?php echo ($thisdefaulttheme == $templatename) ? "selected='selected'" : "" ?> >
+                            <?php echo CHtml::encode($templatename); ?>
                         </option>
                     <?php endforeach; ?>
                 </select>
@@ -75,8 +76,8 @@ $dateformatdata                  = getDateFormatData(Yii::app()->session['datefo
             <div class="col-12">
                 <select class="form-select" name="admintheme" id="admintheme">
                     <?php foreach ($aListOfThemeObjects as $templatename => $templateconfig): ?>
-                        <option value='<?php echo $templatename; ?>' <?php echo ($thisadmintheme == $templatename) ? "selected='selected'" : "" ?> >
-                            <?php echo $templateconfig->metadata->name; ?>
+                        <option value='<?php echo CHtml::encode($templatename); ?>' <?php echo ($thisadmintheme == $templatename) ? "selected='selected'" : "" ?> >
+                            <?php echo CHtml::encode($templateconfig->metadata->name); ?>
                         </option>
                     <?php endforeach; ?>
                 </select>
@@ -288,6 +289,24 @@ Full lock - none of participants are allowed to take survey, even if they alread
                     'selectOptions' => [
                         "default" => gT("Full", 'unescaped'),
                         "none"    => gT("Simple", 'unescaped')
+                    ]
+                ]); ?>
+            </div>
+        </div>
+
+        <!-- Default breadcrumb mode -->
+        <div class="mb-3">
+            <label class="col-12 form-label" for='defaultBreadcrumbMode'>
+                <?php eT("Default breadcrumb mode:");
+                echo((Yii::app()->getConfig("demoMode") == true) ? '*' : ''); ?>
+            </label>
+            <div class="col-12">
+                <?php $this->widget('ext.ButtonGroupWidget.ButtonGroupWidget', [
+                    'name'          => 'defaultBreadcrumbMode',
+                    'checkedOption' => $defaultBreadcrumbMode,
+                    'selectOptions' => [
+                        "short" => gT("Short", 'unescaped'),
+                        "long"  => gT("Long", 'unescaped')
                     ]
                 ]); ?>
             </div>
