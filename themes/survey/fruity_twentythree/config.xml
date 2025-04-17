@@ -81,7 +81,7 @@
         <showpopups type="buttons" category="Simple options" width="4" title="Show popups" options="1|0|-1"
                     optionlabels="Popup|On page|No">1
         </showpopups>
-        <showclearall type="buttons" category="Simple options" width="4" title="Show Clear All button" options="on|off"
+        <showclearall type="buttons" category="Simple options" width="4" title="Show 'Clear all' button" options="on|off"
                       optionlabels="Yes|No">off
         </showclearall>
         <questionhelptextposition type="buttons" category="Simple options" width="4" title="Question help text position"
@@ -104,7 +104,8 @@
         </brandlogofile>
         <!-- fonts -->
         <!--  When adding new items, please keep them ordered alphabetically -->
-        <font type="dropdown" category="Fonts" width="12" title="Fonts" parent="font">ibm-sans
+        <font type="dropdown" category="Fonts" width="12" title="Fonts" parent="font">
+            ibm-sans
             <dropdownoptions>
                 <optgroup label="User browser">
                     <option class="font-arial           " value="arial" data-font-package="websafe">Arial</option>
@@ -132,12 +133,14 @@
                 </optgroup>
             </dropdownoptions>
         </font>
-        <cssframework type="dropdown" category="Simple options" width="12" title="Variations" parent="cssframework">
+        <cssframework type="dropdown" category="Simple options" width="12" title="Variations" parent="cssframework">Apple
             <dropdownoptions>
-                <option data-value="css/variations/theme_apple.css" value="apple">Apple</option>
-                <option data-value="css/variations/theme_blueberry.css" value="blueberry">Blueberry</option>
-                <option data-value="css/variations/theme_grape.css" value="grape">Grape</option>
-                <option data-value="css/variations/theme_mango.css" value="mango">Mango</option>
+                <optgroup>
+                    <option data-value="css/variations/theme_apple.css" value="apple">Apple</option>
+                    <option data-value="css/variations/theme_blueberry.css" value="blueberry">Blueberry</option>
+                    <option data-value="css/variations/theme_grape.css" value="grape">Grape</option>
+                    <option data-value="css/variations/theme_mango.css" value="mango">Mango</option>
+                </optgroup>
             </dropdownoptions>
         </cssframework>
     </options>
@@ -186,10 +189,8 @@
                     <file type="view" role="subview">./subviews/survey/group_subviews/group_name.twig</file>
                     <file type="view" role="subview">./subviews/survey/question.twig</file>
                     <file type="view" role="subview">./subviews/survey/question_container.twig</file>
-                    <file type="view" role="subview">./subviews/survey/question_subviews/question_text_container.twig
-                    </file>
-                    <file type="view" role="subview">./subviews/survey/question_subviews/question_text_content.twig
-                    </file>
+                    <file type="view" role="subview">./subviews/survey/question_subviews/question_text_container.twig</file>
+                    <file type="view" role="subview">./subviews/survey/question_subviews/question_text_content.twig</file>
                     <file type="view" role="subview">./subviews/survey/question_subviews/answers.twig</file>
                     <file type="view" role="subview">./subviews/survey/question_subviews/survey_question_help.twig</file>
                     <file type="view" role="subview">./subviews/survey/question_subviews/valid_message_and_help.twig</file>

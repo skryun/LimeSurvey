@@ -1,5 +1,7 @@
 <?php
 
+use LimeSurvey\Models\Services\Quotas;
+
 /**
  * LimeSurvey
  * Copyright (C) 2007-2011 The LimeSurvey Project Team / Carsten Schmitz
@@ -92,7 +94,7 @@ class SurveyRuntimeHelper
     private $aSurveyInfo = null;
 
     /**
-     * The survey id
+     * The survey ID
      * @var int|null
      */
     private $iSurveyid              = null;
@@ -322,13 +324,25 @@ class SurveyRuntimeHelper
         }
 
         if ($this->sSurveyMode != 'survey' && isset($this->aSurveyInfo['showprogress']) && $this->aSurveyInfo['showprogress'] == 'Y') {
+            $totalSteps = $_SESSION[$this->LEMsessid]['totalsteps'] ?? 1;
+            $totalVisibleSteps = $_SESSION[$this->LEMsessid]['totalVisibleSteps'] ?? 0;
+            $step = $_SESSION[$this->LEMsessid]['step'] ?? 0;
+            $notRelevantSteps = $_SESSION[$this->LEMsessid]['notRelevantSteps'] ?? 0;
+            $hiddenSteps = $_SESSION[$this->LEMsessid]['hiddenSteps'] ?? 0;
+
             if ($this->bShowEmptyGroup) {
-                $this->aSurveyInfo['progress']['currentstep'] = $_SESSION[$this->LEMsessid]['totalsteps'] + 1;
-                $this->aSurveyInfo['progress']['total']       = $_SESSION[$this->LEMsessid]['totalsteps'];
+                $this->aSurveyInfo['progress']['currentstep'] = $totalSteps + 1;
+                $this->aSurveyInfo['progress']['total']       = $totalVisibleSteps ? $totalVisibleSteps : $totalSteps;
             } else {
-                $this->aSurveyInfo['progress']['currentstep'] = $_SESSION[$this->LEMsessid]['step'];
-                $this->aSurveyInfo['progress']['total']       = $_SESSION[$this->LEMsessid]['totalsteps'] ?? 1;
+                $this->aSurveyInfo['progress']['currentstep'] = $step - $notRelevantSteps - $hiddenSteps - 1;
+                $this->aSurveyInfo['progress']['total']       = $totalVisibleSteps ? $totalVisibleSteps - $notRelevantSteps : $totalSteps  - $notRelevantSteps;
             }
+
+            $progressValue = ($this->aSurveyInfo['progress']['currentstep']) / $this->aSurveyInfo['progress']['total'] * 100;
+            $progressValue = (int) round($progressValue);
+            $progressValue = max(0, min(100, $progressValue));
+            $this->aSurveyInfo['progress']['value'] = $progressValue;
+
             /* String used in vanilla/views/subviews/header/progress_bar.twig : for autotranslation */
             $this->aSurveyInfo['progress']['string'] = gT('You have completed %s%% of this survey');
         }
@@ -355,7 +369,7 @@ class SurveyRuntimeHelper
             }
         }
 
-        sendCacheHeaders();
+        sendSurveyHttpHeaders();
 
         Yii::app()->loadHelper('surveytranslator');
 
@@ -386,8 +400,8 @@ class SurveyRuntimeHelper
         }
 
         $this->aSurveyInfo['jPopup'] = json_encode($aPopup);
-        $this->aSurveyInfo['mandSoft'] = array_key_exists('mandSoft', $this->aMoveResult) ? $this->aMoveResult['mandSoft'] : false;
-        $this->aSurveyInfo['mandNonSoft'] = array_key_exists('mandNonSoft', $this->aMoveResult) ? $this->aMoveResult['mandNonSoft'] : false;
+        $this->aSurveyInfo['mandSoft'] = isset($this->aMoveResult['mandSoft']) ? $this->aMoveResult['mandSoft'] : false;
+        $this->aSurveyInfo['mandNonSoft'] = isset($this->aMoveResult['mandNonSoft']) ? $this->aMoveResult['mandNonSoft'] : false;
         $this->aSurveyInfo['mandViolation'] = $this->aStepInfo['mandViolation'] && $this->okToShowErrors;
         $this->aSurveyInfo['showPopups'] = $this->oTemplate != null ? $this->oTemplate->showpopups : false;
 
@@ -515,9 +529,9 @@ class SurveyRuntimeHelper
                         $aGroup['lastanswer']         = $lastanswer;
                     }
                 }
-                Yii::app()->setConfig('gid', '');
                 $this->aSurveyInfo['aGroups'][$gid] = $aGroup;
             }
+            Yii::app()->setConfig('gid', '');
             LimeExpressionManager::updateReplacementFields(array(
                 'GID' => null,
                 'GROUPNAME' => null,
@@ -684,7 +698,7 @@ class SurveyRuntimeHelper
             //Before doing the "templatereplace()" function, check the $this->aSurveyInfo['url']
             //field for limereplace stuff, and do transformations!
             $this->aSurveyInfo['surveyls_url'] = passthruReplace($this->aSurveyInfo['surveyls_url'], $this->aSurveyInfo);
-            $this->aSurveyInfo['surveyls_url'] = templatereplace($this->aSurveyInfo['surveyls_url'], array(), $redata, 'URLReplace', false, null, array(), true); // to do INSERTANS substitutions
+            $this->aSurveyInfo['surveyls_url'] = templatereplace((string) $this->aSurveyInfo['surveyls_url'], array(), $redata, 'URLReplace', false, null, array(), true); // to do INSERTANS substitutions
         }
     }
 
@@ -793,7 +807,7 @@ class SurveyRuntimeHelper
     }
 
     /**
-     * If a step is requested, but the survey id in the session is different from the requested one
+     * If a step is requested, but the survey ID in the session is different from the requested one
      * It reload the needed infos for the requested survey and jump to the requested step.
      */
     private function initDirtyStep()
@@ -872,7 +886,7 @@ class SurveyRuntimeHelper
     {
         /* quota submitted */
         if ($this->sMove == 'confirmquota') {
-            checkCompletedQuota($this->iSurveyid);
+            Quotas::checkCompletedQuota($this->iSurveyid);
         }
         /* quota submitted */
         if ($this->sMove == 'returnfromquota') {
@@ -1047,6 +1061,8 @@ class SurveyRuntimeHelper
         if ($this->aMoveResult && isset($this->aMoveResult['seq'])) {
             if ($this->aMoveResult['finished'] != true) {
                 $_SESSION[$this->LEMsessid]['step'] = $this->aMoveResult['seq'] + 1; // step is index base 1
+                $_SESSION[$this->LEMsessid]['notRelevantSteps'] = $this->aMoveResult['notRelevantSteps'] ?? 0;
+                $_SESSION[$this->LEMsessid]['hiddenSteps'] = $this->aMoveResult['hiddenSteps']?? 0;
                 $this->aStepInfo = LimeExpressionManager::GetStepIndexInfo($this->aMoveResult['seq']);
             }
         }
@@ -1313,9 +1329,13 @@ class SurveyRuntimeHelper
                 $blocks[] = CHtml::tag('div', array('id' => $blockData->getCssId(), 'class' => $blockData->getCssClass()), $blockData->getContent());
             }
 
+            $validator = new LSYii_Validators();
             $this->aSurveyInfo['aCompleted']['sPluginHTML']  = implode("\n", $blocks) . "\n";
             $this->aSurveyInfo['surveyls_url']               = passthruReplace($this->aSurveyInfo['surveyls_url'], $this->aSurveyInfo);
             $this->aSurveyInfo['surveyls_url']               = $this->processString($this->aSurveyInfo['surveyls_url'], 3, 1);
+            if ($validator->isXssUrl($this->aSurveyInfo['surveyls_url'])) {
+                $this->aSurveyInfo['surveyls_url'] = "";
+            }
             $this->aSurveyInfo['aCompleted']['sSurveylsUrl'] = $this->aSurveyInfo['surveyls_url'];
             $this->aSurveyInfo['surveyls_urldescription'] = $this->processString($this->aSurveyInfo['surveyls_urldescription'], 3, 1);
             $this->aSurveyInfo['aCompleted']['sSurveylsUrlDescription'] = $this->aSurveyInfo['surveyls_urldescription'];
@@ -1378,7 +1398,7 @@ class SurveyRuntimeHelper
 
     /**
      * Check in a string if it uses expressions to replace them
-     * @param string $sString the string to evaluate
+     * @param string|null $sString the string to evaluate
      * @param integer $numRecursionLevels - the number of times to recursively subtitute values in this string
      * @param boolean $static - return static string
      * @return string
@@ -1388,7 +1408,7 @@ class SurveyRuntimeHelper
     {
         $sProcessedString = $sString;
 
-        if ((strpos($sProcessedString, "{") !== false)) {
+        if ((strpos((string) $sProcessedString, "{") !== false)) {
             // process string anyway so that it can be pretty-printed
             $aStandardsReplacementFields = getStandardsReplacementFields($this->aSurveyInfo);
             $sProcessedString = LimeExpressionManager::ProcessStepString($sString, $aStandardsReplacementFields, $iRecursionLevel, $static);
@@ -1430,7 +1450,7 @@ class SurveyRuntimeHelper
      * setJavascriptVar
      *
      * @return void
-     * @param mixed $iSurveyId : the survey id for the script
+     * @param mixed $iSurveyId : the survey ID for the script
      */
     public function setJavascriptVar($iSurveyId = '')
     {
@@ -1496,6 +1516,7 @@ class SurveyRuntimeHelper
      */
     private function manageClearAll()
     {
+        global $token;
         $sessionSurvey = Yii::app()->session["survey_{$this->iSurveyid}"];
         if (App()->request->getPost('confirm-clearall') != 'confirm') {
             /* Save current response, and come back to survey if clearll is not confirmed */
@@ -1529,7 +1550,6 @@ class SurveyRuntimeHelper
 
             killSurveySession($this->iSurveyid);
 
-            global $token;
             if ($token) {
                 $restartparam['token'] = Token::sanitizeToken($token);
             }
@@ -1725,6 +1745,15 @@ class SurveyRuntimeHelper
         extract($args);
 
         $this->aSurveyInfo                 = getSurveyInfo($this->iSurveyid, App()->getLanguage());
+        if (isset($args['popuppreview']) && $args['popuppreview']) {
+            $this->aSurveyInfo['showxquestions'] = 'N';
+            $this->aSurveyInfo['shownoanswer'] = 'N';
+            $this->aSurveyInfo['showwelcome'] = 'N';
+            $this->aSurveyInfo['showprogress'] = 'N';
+            $this->aSurveyInfo['format'] = 'A';
+            $this->aSurveyInfo['listpublic'] = 'N';
+            $this->aSurveyInfo['popupPreview'] = true;
+        }
         $this->aSurveyInfo['surveyUrl']    = App()->createUrl("/survey/index", array("sid" => $this->iSurveyid));
 
         // TODO: check this:
@@ -1768,6 +1797,8 @@ class SurveyRuntimeHelper
             }
 
             $_SESSION[$this->LEMsessid]['step'] = $this->aMoveResult['seq'] + 1; // step is index base 1?
+            $_SESSION[$this->LEMsessid]['notRelevantSteps'] = $this->aMoveResult['notRelevantSteps'] ?? 0;
+            $_SESSION[$this->LEMsessid]['hiddenSteps'] = $this->aMoveResult['hiddenSteps']?? 0;
 
             $this->aStepInfo = LimeExpressionManager::GetStepIndexInfo($this->aMoveResult['seq']);
 
@@ -1792,7 +1823,7 @@ class SurveyRuntimeHelper
             if (($this->bShowEmptyGroup) || !isset($_SESSION[$this->LEMsessid]['grouplist'])) {
                 $this->gid              = -1; // Make sure the gid is unused. This will assure that the foreach (fieldarray as ia) has no effect.
                 $this->groupname        = gT("Submit your answers");
-                $this->groupdescription = gT("There are no more questions. Please press the <Submit> button to finish this survey.");
+                $this->groupdescription = gT("There are no more questions. Please use the `Submit` button to finish this survey.");
             } elseif ($this->sSurveyMode != 'survey') {
                 if ($this->sSurveyMode != 'group') {
                     $this->aStepInfo = LimeExpressionManager::GetStepIndexInfo($this->aMoveResult['seq']);
@@ -1818,7 +1849,7 @@ class SurveyRuntimeHelper
      * Apply the plugin even beforeQuestionRender to
      * question data.
      *
-     * @see https://manual.limesurvey.org/BeforeQuestionRender
+     * @see https://www.limesurvey.org/manual/BeforeQuestionRender
      *
      * @param array $data Question data
      * @return array Question data modified by plugin

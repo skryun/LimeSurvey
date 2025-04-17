@@ -24,8 +24,8 @@
                     <span class='annotation text-danger'><?php echo  gT("Required"); ?> </span>
                 </p>
 
-                <!-- New survey id -->
-                <label class=" form-label" for='copysurveyid'><?php echo  eT("New survey id:"); ?> </label>
+                <!-- New survey ID -->
+                <label class=" form-label" for='copysurveyid'><?php echo  eT("New survey ID:"); ?> </label>
                 <input type='number' step="1" min="1" max="999999" id='copysurveyid' size='82' name='copysurveyid' value='' class="form-control" />
                 <p class="form-control-static">
                     <span class='annotation text-info'><?php echo  gT("Optional"); ?> </span>
@@ -33,7 +33,7 @@
                             <?= gT("If the new survey ID is already used, a random one will be assigned."); ?> </span>
                 <!-- Submit -->
                 <div class="mt-3">
-                    <input type='submit' class='btn btn-primary col-4' value='<?php eT("Copy survey"); ?>' />
+                    <input type='submit' class='btn btn-primary col-6' value='<?php eT("Copy survey"); ?>' />
                     <?php if (isset($surveyid)) echo '<input type="hidden" name="sid" value="' . $surveyid . '" />'; ?>
                     <input type='hidden' name='action' value='copysurvey' />
                 </div>

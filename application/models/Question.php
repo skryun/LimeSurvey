@@ -27,6 +27,7 @@ use LimeSurvey\Helpers\questionHelper;
  * @property string $other Other option enabled for question (Y/N)
  * @property string $mandatory Whether question is mandatory (Y/S/N)
  * @property string $encrypted Whether question is encrypted (Y/N)
+ * @property string $question_theme_name
  * @property integer $question_order Question order in greoup
  * @property integer $parent_qid Questions parent question ID eg for subquestions
  * @property integer $scale_id  The scale ID
@@ -126,7 +127,13 @@ class Question extends LSActiveRecord
             'parent' => array(self::HAS_ONE, 'Question', array("qid" => "parent_qid")),
             'questionattributes' => array(self::HAS_MANY, 'QuestionAttribute', 'qid'),
             'questionl10ns' => array(self::HAS_MANY, 'QuestionL10n', 'qid', 'together' => true),
-            'subquestions' => array(self::HAS_MANY, 'Question', array('parent_qid' => 'qid'), 'order' => App()->getDb()->quoteColumnName('subquestions.question_order') . ' ASC'),
+            'subquestions' => array(
+                self::HAS_MANY,
+                'Question',
+                array('parent_qid' => 'qid'),
+                'order' => 'subquestions.question_order ASC',
+                'together' => false
+            ),
             'conditions' => array(self::HAS_MANY, 'Condition', 'qid'),
             'answers' => array(self::HAS_MANY, 'Answer', 'qid'),
             // This relation will fail for non saved questions, which is often the case
@@ -137,14 +144,26 @@ class Question extends LSActiveRecord
 
     /**
      * @inheritdoc
+     * replace under condition $oQuestion->survey to use Survey::$findByPkCache
+     */
+    public function getRelated($name, $refresh = false, $params = array())
+    {
+        if ($name == 'survey' && !$refresh && empty($params)) {
+            return Survey::model()->findByPk($this->sid);
+        }
+        return parent::getRelated($name, $refresh, $params);
+    }
+
+    /**
+     * @inheritdoc
      * TODO: make it easy to read (if possible)
      */
     public function rules()
     {
         /* Basic rules */
         $aRules = array(
-            array('title', 'required', 'on' => 'update, insert', 'message' => gT('The question code is mandatory.', 'unescaped')),
-            array('title', 'length', 'min' => 1, 'max' => 20, 'on' => 'update, insert'),
+            array('title', 'required', 'on' => 'update, insert, saveall', 'message' => gT('The question code is mandatory.', 'unescaped')),
+            array('title', 'length', 'min' => 1, 'max' => 20, 'on' => 'update, insert, saveall'),
             array('qid,sid,gid,parent_qid', 'numerical', 'integerOnly' => true),
             array('qid', 'unique','message' => sprintf(gT("Question id (qid) : '%s' is already in use."), $this->qid)),// Still needed ?
             array('other', 'in', 'range' => array('Y', 'N'), 'allowEmpty' => true),
@@ -168,7 +187,7 @@ class Question extends LSActiveRecord
             return 'N';
         });
         /* Don't save empty or 'core' question theme name */
-        $aRules[] = ['question_theme_name', 'questionThemeNameValidator'];
+        $aRules[] = ['question_theme_name', 'filter', 'filter' =>  [$this, 'questionThemeNameValidator'] ];
         /* Specific rules to avoid collapse with column name in database */
         if ($this->parent_qid) {
             /* Subquestion specific rules */
@@ -182,7 +201,8 @@ class Question extends LSActiveRecord
                         ':scale_id' => $this->scale_id
                         )
                     ),
-                    'message' => gT('Subquestion codes must be unique.')
+                    'message' => gT('Subquestion codes must be unique.'),
+                    'except' => 'saveall'
             );
             /* Disallow other title if question allow other */
             $oParentQuestion = Question::model()->findByPk(array("qid" => $this->parent_qid));
@@ -259,7 +279,7 @@ class Question extends LSActiveRecord
                 'except' => 'archiveimport'
             );
             $aRules[] = array(
-                'title', 'match', 'pattern' => '/^[[:alnum:]]*$/',
+                'title', 'match', 'pattern' => '/^[a-zA-z0-9]*$/',
                 'message' => gT('Subquestion codes may only contain alphanumeric characters.'),
                 'except' => 'archiveimport'
             );
@@ -470,52 +490,48 @@ class Question extends LSActiveRecord
     public function removeFromLastVisited()
     {
         $oCriteria = new CDbCriteria();
-        $oCriteria->compare('stg_name', 'last_question_%', true, 'AND', false);
-        $oCriteria->compare('stg_value', $this->qid, false, 'AND');
-        SettingGlobal::model()->deleteAll($oCriteria);
+        $oCriteria->compare('stg_name', 'last_question');
+        $oCriteria->compare('stg_value', $this->qid);
+        SettingsUser::model()->deleteAll($oCriteria);
     }
 
     /**
      * Delete all subquestions that belong to this question.
      *
+     * @param ?array $exceptIds Don't delete subquestions with these ids.
      * @return void
-     * @todo Duplication from delete()
      */
-    public function deleteAllSubquestions()
+    public function deleteAllSubquestions($exceptIds = [])
     {
-        $ids = $this->allSubQuestionIds;
-        $qidsCriteria = (new CDbCriteria())->addInCondition('qid', $ids);
-        $res = Question::model()->deleteAll((new CDbCriteria())->addInCondition('qid', $ids));
-        QuestionAttribute::model()->deleteAll($qidsCriteria);
-        QuestionL10n::model()->deleteAll($qidsCriteria);
-        QuotaMember::model()->deleteAll($qidsCriteria);
-        $defaultValues = DefaultValue::model()->findAll((new CDbCriteria())->addInCondition('qid', $ids));
-        foreach ($defaultValues as $defaultValue) {
-            DefaultValue::model()->deleteAll('dvid = :dvid', array(':dvid' => $defaultValue->dvid));
-            DefaultValueL10n::model()->deleteAll('dvid = :dvid', array(':dvid' => $defaultValue->dvid));
+        $ids = !empty($exceptIds)
+            ? array_diff($this->allSubQuestionIds, $exceptIds)
+            : $this->allSubQuestionIds;
+
+        $questions = Question::model()->findAll((new CDbCriteria())->addInCondition('qid', $ids));
+        foreach ($questions as $question) {
+            $question->delete();
         }
     }
 
     /**
      * Delete all question and its subQuestion Answers
-     *
+     * @param array $exceptIds Don't delete answers with these ids.
      * @return void
      */
-    public function deleteAllAnswers()
+    public function deleteAllAnswers(array $exceptIds = [])
     {
         $ids = array_merge([$this->qid], $this->allSubQuestionIds);
         $qidsCriteria = (new CDbCriteria())->addInCondition('qid', $ids);
-
-        $answerIds = [];
+        $qidsCriteria->addNotInCondition('aid', $exceptIds);
         $answers = Answer::model()->findAll($qidsCriteria);
         if (!empty($answers)) {
             foreach ($answers as $answer) {
-                $answerIds[] = $answer->aid;
+                $answerId = $answer->aid;
+                if ($answer->delete()) {
+                    AnswerL10n::model()->deleteAllByAttributes(['aid' => $answerId]);
+                }
             }
         }
-        $aidsCriteria = (new CDbCriteria())->addInCondition('aid', $answerIds);
-        AnswerL10n::model()->deleteAll($aidsCriteria);
-        Answer::model()->deleteAll($qidsCriteria);
     }
 
     /**
@@ -756,7 +772,13 @@ class Question extends LSActiveRecord
         );
     }
 
-    public function getOrderedAnswers($scale_id = null)
+    /**
+     * get the ordered answers
+     * @param null|integer scale
+     * @param null|string $language
+     * @return array
+     */
+    public function getOrderedAnswers($scale_id = null, $language = null)
     {
         //reset answers set prior to this call
         $aAnswerOptions = [
@@ -775,7 +797,7 @@ class Question extends LSActiveRecord
             return $aAnswerOptions[$scale_id];
         }
 
-        $aAnswerOptions = $this->sortAnswerOptions($aAnswerOptions);
+        $aAnswerOptions = $this->sortAnswerOptions($aAnswerOptions, $language);
         return $aAnswerOptions;
     }
 
@@ -783,9 +805,10 @@ class Question extends LSActiveRecord
      * Returns the specified answer options sorted according to the question attributes.
      * Refactored from getOrderedAnswers();
      * @param array<int,Answer[]> The answer options to sort
+     * @param null|string $language
      * @return array<int,Answer[]>
      */
-    private function sortAnswerOptions($answerOptions)
+    private function sortAnswerOptions($answerOptions, $language = null)
     {
         // Sort randomly if applicable
         if ($this->shouldOrderAnswersRandomly()) {
@@ -804,18 +827,19 @@ class Question extends LSActiveRecord
 
         // Sort alphabetically if applicable
         if ($this->shouldOrderAnswersAlphabetically()) {
+            if (empty($language) || !in_array($language, $this->survey->allLanguages)) {
+                $language = $this->survey->language;
+            }
             foreach ($answerOptions as $scaleId => $scaleArray) {
                 $sorted = array();
-
-                // We create an aray sorted that will use the answer in the current language as key, and that will store its old index as value
+                // We create an array sorted that will use the answer in the current language as value, and keep key
                 foreach ($scaleArray as $key => $answer) {
-                    $sorted[$answer->answerl10ns[$this->survey->language]->answer] = $key;
+                    $sorted[$key] = $answer->answerl10ns[$language]->answer;
                 }
-                ksort($sorted);
-
+                LimeSurvey\Helpers\SortHelper::getInstance($language)->asort($sorted, LimeSurvey\Helpers\SortHelper::SORT_STRING);
                 // Now, we create a new array that store the old values of $answerOptions in the order of $sorted
                 $sortedScaleAnswers = array();
-                foreach ($sorted as $answer => $key) {
+                foreach ($sorted as $key => $answer) {
                     $sortedScaleAnswers[] = $scaleArray[$key];
                 }
                 $answerOptions[$scaleId] = $sortedScaleAnswers;
@@ -1058,7 +1082,7 @@ class Question extends LSActiveRecord
                 'header' => gT('Question type'),
                 'name' => 'type',
                 'type' => 'raw',
-                'value' => '$data->question_theme->title . (YII_DEBUG ? " <em>{$data->type}</em>" : "")',
+                'value' => 'gT($data->question_theme->title) . (YII_DEBUG ? " <em>{$data->type}</em>" : "")',
                 'htmlOptions' => array('class' => ''),
             ),
 
@@ -1142,7 +1166,7 @@ class Question extends LSActiveRecord
             'question_order' => CSort::SORT_ASC,
         );
 
-        $criteria = new CDbCriteria();
+        $criteria = new LSDbCriteria();
         $criteria->compare("t.sid", $this->sid, false, 'AND');
         $criteria->compare("t.parent_qid", 0, false, 'AND');
         //$criteria->group = 't.qid, t.parent_qid, t.sid, t.gid, t.type, t.title, t.preg, t.other, t.mandatory, t.question_order, t.scale_id, t.same_default, t.relevance, t.modulename, t.encrypted';
@@ -1153,7 +1177,7 @@ class Question extends LSActiveRecord
         ];
 
         if (!empty($this->title)) {
-            $criteria2 = new CDbCriteria();
+            $criteria2 = new LSDbCriteria();
             $criteria2->compare('t.title', $this->title, true, 'OR');
             $criteria2->compare('ql10n.question', $this->title, true, 'OR');
             $criteria2->compare('t.type', $this->title, true, 'OR');
@@ -1197,14 +1221,13 @@ class Question extends LSActiveRecord
     protected function beforeSave()
     {
         if (parent::beforeSave()) {
+            /* No update when surey activated */
             $surveyIsActive = Survey::model()->findByPk($this->sid)->active !== 'N';
-
             if ($surveyIsActive) {
                 //don't override questiontype when survey is active, set it back to what it was...
                 $oActualValue = Question::model()->findByPk(array("qid" => $this->qid));
                 $this->type = $oActualValue->type;
             }
-
             if ($surveyIsActive && $this->getIsNewRecord()) {
                 return false;
             }
@@ -1213,7 +1236,6 @@ class Question extends LSActiveRecord
             return false;
         }
     }
-
 
     /**
      * Fix sub question of a parent question
@@ -1528,6 +1550,7 @@ class Question extends LSActiveRecord
         return !$isAlreadySorted;
     }
 
+
     /**
      * Returns the highest question_order value that exists for a questiongroup inside the related questions.
      * ($question->question_order).
@@ -1554,10 +1577,16 @@ class Question extends LSActiveRecord
      * Increases all question_order numbers for questions belonging to the group by +1
      *
      * @param int $questionGroupId
+     * @param integer|null $after questionorder
      */
-    public static function increaseAllOrderNumbersForGroup($questionGroupId)
+    public static function increaseAllOrderNumbersForGroup($questionGroupId, $after = null)
     {
-        $questionsInGroup = Question::model()->findAllByAttributes(["gid" => $questionGroupId]);
+        $criteria = new CDbCriteria();
+        $criteria->compare("gid", $questionGroupId);
+        if ($after) {
+            $criteria->compare("question_order", ">=" . $after);
+        }
+        $questionsInGroup = Question::model()->findAll($criteria);
         foreach ($questionsInGroup as $question) {
             $question->question_order = $question->question_order + 1;
             $question->save();
@@ -1725,16 +1754,30 @@ class Question extends LSActiveRecord
      */
     public function questionThemeNameValidator()
     {
-        // As long as there is a question theme name, and it's not 'core', it's ok.
-        if (!empty($this->question_theme_name) && $this->question_theme_name != 'core') {
-            return;
+        /* need a type */
+        if (empty($this->type)) {
+            return null;
         }
-
-        // If question_theme_name is empty or 'core', we fetch the value from the question_theme related to the question_type
+        /* not needed in child question */
+        if (!empty($this->parent_qid)) {
+            return null;
+        }
+        if (!empty($this->question_theme_name) && $this->question_theme_name != 'core') {
+            $criteria = new CDbCriteria();
+            $criteria->addCondition('question_type = :question_type AND name = :name');
+            $criteria->params = [':question_type' => $this->type, ':name' => $this->question_theme_name];
+            $questionTheme = QuestionTheme::model()->query($criteria, false);
+            if ($questionTheme) {
+                return $this->question_theme_name;
+            }
+        }
+        /* Get default theme name from type */
         $baseQuestionThemeName = QuestionTheme::model()->getBaseThemeNameForQuestionType($this->type);
         if (!empty($baseQuestionThemeName)) {
-            $this->question_theme_name = $baseQuestionThemeName;
+            return $baseQuestionThemeName;
         }
+        /* Not a valid type ? */
+        return null;
     }
 
     /**

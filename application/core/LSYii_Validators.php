@@ -43,6 +43,11 @@ class LSYii_Validators extends CValidator
      * @var boolean
      */
     public $isLanguageMulti = false;
+    /**
+     * Filter attribute for allowDataUri (default is false)
+     * @var boolean
+     */
+    public $allowDataUri = false;
 
     public function __construct()
     {
@@ -87,6 +92,9 @@ class LSYii_Validators extends CValidator
         if ($this->isLanguageMulti) {
             $object->$attribute = $this->multiLanguageFilter($object->$attribute);
         }
+        if (!$this->allowDataUri) {
+            $object->$attribute = $this->dataUriFilter($object->$attribute);
+        }
     }
 
     /**
@@ -119,11 +127,15 @@ class LSYii_Validators extends CValidator
     /**
      * Remove any script or dangerous HTML
      *
-     * @param string $value
+     * @param null|string $value
      * @return string
      */
     public function xssFilter($value)
     {
+        /* No need to filter empty $value */
+        if (empty($value)) {
+            return strval($value);
+        }
         $filter = LSYii_HtmlPurifier::getXssPurifier();
 
         /** Start to get complete filtered value with  url decode {QCODE} (bug #09300). This allow only question number in url, seems OK with XSS protection **/
@@ -166,10 +178,14 @@ class LSYii_Validators extends CValidator
      * Defines the customs validation rule for language string
      *
      * @param mixed $value
-     * @return mixed
+     * @return string
      */
     public function languageFilter($value)
     {
+        /* No need to filter empty $value */
+        if (empty($value)) {
+            return strval($value);
+        }
         // Maybe use the array of language ?
         return preg_replace('/[^a-z0-9-]/i', '', (string) $value);
     }
@@ -182,6 +198,10 @@ class LSYii_Validators extends CValidator
      */
     public function multiLanguageFilter($value)
     {
+        /* No need to filter empty $value */
+        if (empty($value)) {
+            return strval($value);
+        }
         $aValue = explode(" ", trim((string) $value));
         $aValue = array_map("sanitize_languagecode", $aValue);
         return implode(" ", $aValue);
@@ -194,6 +214,10 @@ class LSYii_Validators extends CValidator
      */
     public static function isXssUrl($url)
     {
+        /* No need to filter empty $value */
+        if (empty($url)) {
+            return false;
+        }
         $decodedUrl = self::treatSpecialChars($url);
         $clean = self::removeInvisibleChars($decodedUrl);
 
@@ -243,5 +267,21 @@ class LSYii_Validators extends CValidator
     {
         // TODO: Recurse?
         return urldecode(html_entity_decode($string));
+    }
+
+    /**
+     * Filters data URIs.
+     * @param string $string
+     * @return string
+     */
+    public static function dataUriFilter($value)
+    {
+        /* No need to filter empty $value */
+        if (empty($value)) {
+            return strval($value);
+        }
+        // Filter out data URIs (with regex)
+        $filtered = preg_replace('/src\s*=\s*["\']data:[^\'"]+["\']/', '', $value);
+        return $filtered;
     }
 }

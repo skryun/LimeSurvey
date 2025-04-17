@@ -6,13 +6,6 @@
 // DO NOT REMOVE This is for automated testing to validate we see that page
 echo viewHelper::getViewTestTag('globalsettings');
 
-App()->getClientScript()->registerScript('GlobalSettingsBSSwitcher',
-    "
-LS.renderBootstrapSwitch();
-",
-    LSYii_ClientScript::POS_POSTSCRIPT
-);
-
 ?>
 <script type="text/javascript">
     var msgCantRemoveDefaultLanguage = '<?php eT("You can't remove the default language.", 'js'); ?>';
@@ -61,7 +54,9 @@ LS.renderBootstrapSwitch();
     </div>
 
     <div id="email" class="tab-pane col-lg-10 offset-lg-1">
-        <?php $this->renderPartial("./globalsettings/_email"); ?>
+        <?php $this->renderPartial("./globalsettings/_email", [
+            'emailPlugins' => $emailPlugins,
+        ]); ?>
     </div>
 
     <div id="bounce" class="tab-pane col-lg-10 offset-lg-1">

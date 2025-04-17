@@ -1,8 +1,6 @@
-// Body
-body {
-  background-color: $g-100;
+.selector_openSharePanel {
+  display: inline-block;
 }
-
 .summary-table {
   font-size: $font-size-sm;
   padding-left: 0.5rem;
@@ -47,7 +45,7 @@ body {
   }
   .accordion-button,
   .accordion-body {
-    background: $g-100;
+    background: $g-200;
   }
   .accordion-button {
     padding-left: 0;
@@ -179,4 +177,10 @@ blockquote {
 
 #surveySettingsForThisGroup {
   column-gap: 20px;
+}
+
+#usermanagement--identity-gridPanel tr.disabled {
+  color: $g-400;
+  pointer-events: auto;
+  cursor: not-allowed;
 }
